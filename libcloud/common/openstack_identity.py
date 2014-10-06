@@ -565,7 +565,7 @@ class OpenStackIdentityConnection(ConnectionUserAndKey):
     timeout = None
 
     def __init__(self, auth_url, user_id, key, tenant_name=None,
-                 timeout=None, parent_conn=None):
+                 domain_name=None, timeout=None, parent_conn=None):
         super(OpenStackIdentityConnection, self).__init__(user_id=user_id,
                                                           key=key,
                                                           url=auth_url,
@@ -583,6 +583,7 @@ class OpenStackIdentityConnection(ConnectionUserAndKey):
             self.driver = None
 
         self.auth_url = auth_url
+        self.domain_name = domain_name
         self.tenant_name = tenant_name
         self.timeout = timeout
 
@@ -943,6 +944,7 @@ class OpenStackIdentity_3_0_Connection(OpenStackIdentityConnection):
                              user_id=user_id,
                              key=key,
                              tenant_name=tenant_name,
+                             domain_name=domain_name,
                              timeout=timeout,
                              parent_conn=parent_conn)
         if token_scope not in self.VALID_TOKEN_SCOPES:

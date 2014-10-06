@@ -34,6 +34,7 @@ class Provider(object):
     ZERIGO = 'zerigo'
     ROUTE53 = 'route53'
     HOSTVIRTUAL = 'hostvirtual'
+    HPCLOUD = 'hpcloud'
     GANDI = 'gandi'
     GOOGLE = 'google'
 

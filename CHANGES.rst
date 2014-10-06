@@ -156,6 +156,13 @@ Storage
   (LIBCLOUD-612, GITHUB-356)
   [Stefan Friesel]
 
+
+DNS
+~~~~~~~
+
+- Add new HPCloud DNS driver.
+  [Vanc Levstik]
+
 Loadbalancer
 ~~~~~~~~~~~~
 

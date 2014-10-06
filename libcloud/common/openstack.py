@@ -130,7 +130,8 @@ class OpenStackBaseConnection(ConnectionUserAndKey):
                  ex_tenant_name=None,
                  ex_force_service_type=None,
                  ex_force_service_name=None,
-                 ex_force_service_region=None):
+                 ex_force_service_region=None,
+                 ex_domain_name=None):
         super(OpenStackBaseConnection, self).__init__(
             user_id, key, secure=secure, timeout=timeout)
 
@@ -144,6 +145,8 @@ class OpenStackBaseConnection(ConnectionUserAndKey):
         self._ex_force_service_type = ex_force_service_type
         self._ex_force_service_name = ex_force_service_name
         self._ex_force_service_region = ex_force_service_region
+        self._ex_force_service_region = ex_force_service_region
+        self._ex_domain_name = ex_domain_name
         self._osa = None
 
         if ex_force_auth_token and not ex_force_base_url:
@@ -177,6 +180,7 @@ class OpenStackBaseConnection(ConnectionUserAndKey):
                             user_id=self.user_id,
                             key=self.key,
                             tenant_name=self._ex_tenant_name,
+                            domain_name=self._ex_domain_name,
                             timeout=self.timeout,
                             parent_conn=self)
 
@@ -384,6 +388,7 @@ class OpenStackDriverMixin(object):
         self._ex_force_service_name = kwargs.get('ex_force_service_name', None)
         self._ex_force_service_region = kwargs.get('ex_force_service_region',
                                                    None)
+        self._ex_domain_name = kwargs.get('ex_domain_name', None)
 
     def openstack_connection_kwargs(self):
         """
@@ -407,4 +412,6 @@ class OpenStackDriverMixin(object):
             rv['ex_force_service_name'] = self._ex_force_service_name
         if self._ex_force_service_region:
             rv['ex_force_service_region'] = self._ex_force_service_region
+        if self._ex_domain_name:
+            rv['ex_domain_name'] = self._ex_domain_name
         return rv

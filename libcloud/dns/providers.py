@@ -39,6 +39,7 @@ DRIVERS = {
     ('libcloud.dns.drivers.softlayer', 'SoftLayerDNSDriver'),
     Provider.LEASEWEB:
     ('libcloud.dns.drivers.leaseweb', 'LeaseWebDNSDriver'),
+    Provider.CLOUDNS: ('libcloud.dns.drivers.cloudns', 'ClouDNSDNSDriver'),
     # Deprecated
     Provider.RACKSPACE_US:
     ('libcloud.dns.drivers.rackspace', 'RackspaceUSDNSDriver'),

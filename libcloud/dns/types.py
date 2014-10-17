@@ -39,6 +39,7 @@ class Provider(object):
     GOOGLE = 'google'
     SOFTLAYER = 'softlayer'
     LEASEWEB = 'leaseweb'
+    CLOUDNS = 'cloudns'
 
     # Deprecated
     RACKSPACE_US = 'rackspace_us'

@@ -37,6 +37,7 @@ class Provider(object):
     HPCLOUD = 'hpcloud'
     GANDI = 'gandi'
     GOOGLE = 'google'
+    CLOUDNS = 'cloudns'
 
     # Deprecated
     RACKSPACE_US = 'rackspace_us'

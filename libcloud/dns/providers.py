@@ -51,6 +51,9 @@ DRIVERS = {
     ('libcloud.dns.drivers.zonomi', 'ZonomiDNSDriver'),
     Provider.DURABLEDNS:
     ('libcloud.dns.drivers.durabledns', 'DurableDNSDriver'),
+    Provider.LEASEWEB:
+    ('libcloud.dns.drivers.leaseweb', 'LeaseWebDNSDriver'),
+    
     # Deprecated
     Provider.RACKSPACE_US:
     ('libcloud.dns.drivers.rackspace', 'RackspaceUSDNSDriver'),

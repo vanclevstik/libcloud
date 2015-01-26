@@ -46,6 +46,7 @@ class Provider(object):
     LIQUIDWEB = 'liquidweb'
     ZONOMI = 'zonomi'
     DURABLEDNS = 'durabledns'
+    LEASEWEB = 'leaseweb'
 
     # Deprecated
     RACKSPACE_US = 'rackspace_us'

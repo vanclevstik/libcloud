@@ -40,6 +40,7 @@ class Provider(object):
     SOFTLAYER = 'softlayer'
     LEASEWEB = 'leaseweb'
     CLOUDNS = 'cloudns'
+    VULTR = 'vultr'
 
     # Deprecated
     RACKSPACE_US = 'rackspace_us'

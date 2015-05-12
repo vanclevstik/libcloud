@@ -34,12 +34,16 @@ DRIVERS = {
     ('libcloud.dns.drivers.route53', 'Route53DNSDriver'),
     Provider.GANDI:
     ('libcloud.dns.drivers.gandi', 'GandiDNSDriver'),
-    Provider.GOOGLE: ('libcloud.dns.drivers.google', 'GoogleDNSDriver'),
+    Provider.GOOGLE:
+    ('libcloud.dns.drivers.google', 'GoogleDNSDriver'),
     Provider.SOFTLAYER:
     ('libcloud.dns.drivers.softlayer', 'SoftLayerDNSDriver'),
     Provider.LEASEWEB:
     ('libcloud.dns.drivers.leaseweb', 'LeaseWebDNSDriver'),
-    Provider.CLOUDNS: ('libcloud.dns.drivers.cloudns', 'ClouDNSDNSDriver'),
+    Provider.CLOUDNS:
+    ('libcloud.dns.drivers.cloudns', 'ClouDNSDNSDriver'),
+    Provider.VULTR:
+    ('libcloud.dns.drivers.vultr', 'VultrDNSDriver'),
     # Deprecated
     Provider.RACKSPACE_US:
     ('libcloud.dns.drivers.rackspace', 'RackspaceUSDNSDriver'),

@@ -1,3 +1,5 @@
+.. NOTE: This file has been generated automatically using generate_provider_feature_matrix_table.py script, don't manually edit it
+
 ====================================== =============== ============== ============ ============= ============= ===================
 Provider                               create balancer list balancers list members attach member detach member attach compute node
 ====================================== =============== ============== ============ ============= ============= ===================
@@ -10,6 +12,7 @@ Provider                               create balancer list balancers list membe
 `Rackspace LB`_                        yes             yes            yes          yes           yes           no                 
 `Rackspace LB`_                        yes             yes            yes          yes           yes           no                 
 `Rackspace LB`_                        yes             yes            yes          yes           yes           no                 
+`Softlayer Load Balancing`_            no              yes            yes          yes           yes           no                 
 ====================================== =============== ============== ============ ============= ============= ===================
 
 .. _`Brightbox`: http://www.brightbox.co.uk/
@@ -21,3 +24,4 @@ Provider                               create balancer list balancers list membe
 .. _`Rackspace LB`: http://www.rackspace.com/
 .. _`Rackspace LB`: http://www.rackspace.com/
 .. _`Rackspace LB`: http://www.rackspace.com/
+.. _`Softlayer Load Balancing`: http://www.softlayer.com/

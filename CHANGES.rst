@@ -12,8 +12,86 @@ General
   versions < 3.2.
   [Tomaz Muraus]
 
+- Add support for AWS Signature version 4.
+
+  Note: Currently only GET HTTP method is supported.
+  (GITHUB-444)
+  [Gertjan Oude Lohuis]
+
+- Fix a bug in the debug mode logging (LIBCLOUD_DEBUG). Logging to the debug
+  file would throw an exception if the text contained non-ascii characters.
+  [Tomaz Muraus]
+
+- Fix a bug with connection code throwing an exception if a port was a unicode
+  type and not a str or int.
+  (GITHUB-533, LIBCLOUD-716)
+  [Avi Weit]
+
+- Update ``is_valid_ip_address`` function so it also works on Windows.
+  (GITHUB-343, GITHUB-498, LIBCLOUD-601, LIBCLOUD-686)
+  [Nicolas Fraison, Samuel Marks]
+
+- Add support for retrying failed HTTP requests.
+
+  Retrying is off by default and can be enabled by setting
+  ``LIBCLOUD_RETRY_FAILED_HTTP_REQUESTS`` environment variable.
+  (GITHUB-515, LIBCLOUD-360, LIBCLOUD-709)
+
+- Fix a bug in consuming stdout and stderr strams in Paramiko SSH client.
+
+  In some cases (like connecting to localhost via SSH), exit_status_ready
+  gets set immediately even before the while loop to consume the streams
+  kicks in. In those cases, we will not have consumed the streams at all.
+  (GITHUB-558)
+  [Lakshmi Kannan]
+
 Compute
 ~~~~~~~
+
+- Google Compute now supports paginated lists including filtering.
+  (GITHUB-491)
+  [Lee Verberne]
+
+- OpenStackNodeSize objects now support optional, additional fields that are
+  supported in OpenStack 2.1: `ephemeral_disk`, `swap`, `extra`.
+  (GITHUB-488, LIBCLOUD-682)
+  [Greg Hill]
+
+- StorageVolume objects now have an attribute `state` that holds a
+  state variable that is standardized state across drivers. Drivers that
+  currently support the `state` attribute are OpenStack and EC2.
+  StorageVolume objects returned by drivers that do not support the
+  attribute will have a `state` of `None`. When a provider returns a state
+  that is unknown to the driver, the state will be `UNKNOWN`. Please report
+  such states. A couple of drivers already put state fields in the `extra`
+  fields of StorageVolumes. These fields were kept for
+  backwards-compatibility and for reference.
+  (GITHUB-476)
+  [Allard Hoeve]
+
+- StorageVolume objects on EC2 and OpenStack now have a key called snapshot_id
+  in their extra dicts containing the snapshot ID the volume was based on.
+  (GITHUB-479)
+  [Allard Hoeve]
+
+- OpenStack driver: deprecated ex_create_snapshot and ex_delete_snapshot in
+  favor of create_volume_snapshot and destroy_volume_snapshot. Updated base
+  driver method create_storage_volume argument name to be optional.
+  (GITHUB-478)
+  [Allard Hoeve]
+
+- Add support for creating volumes based on snapshots to EC2 and OS drivers.
+  Also modify signature of base NodeDriver.create_volume to reflect the fact
+  that all drivers expect a StorageSnapshot object as the snapshot argument.
+  (GITHUB-467, LIBCLOUD-672)
+  [Allard Hoeve]
+
+- VolumeSnapshots now have a `created` attribute that is a `datetime`
+  field showing the creation datetime of the snapshot. The field in
+  VolumeSnapshot.extra containing the original string is maintained, so
+  this is a backwards-compatible change.
+  (GITHUB-473)
+  [Allard Hoeve]
 
 - Improve GCE create_node, make sure ex_get_disktype function
   (GITHUB-448)
@@ -54,6 +132,151 @@ Compute
   (LIBCLOUD-671, GITHUB-468)
   [Mateusz Korszun]
 
+- Add a support for a new AWS Frankfurt, Germany region (``eu-central-1``) to
+  the EC2 driver using AWS Signature v4.
+  (GITHUB-444)
+  [Gertjan Oude Lohuis, Tomaz Muraus]
+
+- Allow Filtering in EC2 list_images() driver
+  (GITHUB-456, LIBCLOUD-667)
+  [Katriel Traum]
+
+- Add ex_list_ip_forwarding_rules() to CloudStack driver
+  (GITHUB-483)
+  [Atsushi Sasaki]
+
+- Add AURORA compute driver
+  (LIBCLOUD-641, GITHUB-477)
+  [Wido den Hollander]
+
+- Update ``ex_describe_tags`` method in the EC2 driver and allow user to list
+  tags for any supported resource. Previously you could only list tags for a
+  node or a storage volume.
+  (LIBCLOUD-676, GITHUB-482)
+  [John Kinsella]
+
+- Various improvements in the HostVirual driver (code refactoring, support for
+  managing "packages").
+  (LIBCLOUD-670, GITHUB-472)
+  [Dinesh Bhoopathy]
+
+- Add support for DigitalOcean API v2.0 while maintaining support for the old
+  API v2.0.
+
+  Note: API v2.0 is now used by default. To use the old API v1.0, pass
+  ``api_version='1.0'`` argument to the driver constructor.
+  (GITHUB-442)
+  [Andrew Starr-Bochicchio]
+
+- Add new ``d4.`` instance types to the EC2 driver. Also update EC2 pricing data.
+  (GITHUB-490)
+  [Tomaz Muraus]
+
+- Add new driver for Microsft Azure Virtual Machines service.
+  (LIBCLOUD-556, GITHUB-305, GITHUB-499, GITHUB-538)
+  [Michael Bennett, davidcrossland, Richard Conway, Matt Baldwin, Tomaz Muraus]
+
+- Fix VPC lookup method in CloudStack driver
+  (GITHUB-506)
+  [Avi Nanhkoesingh]
+
+- Add new driver for the Dimension Data provider based on the OpSource driver.
+  (LIBCLOUD-698, GITHUB-507, LIBCLOUD-700, GITHUB-513)
+  [Anthony Shaw]
+
+- Add "virtualmachine_id" attribute to the ``CloudStackAddress`` class in the
+  CloudStack driver.
+  (LIBCLOUD-679, GITHUB-485)
+  [Atsushi Sasaki]
+
+- Allow user to pass filters via arguments to the
+  ``ex_list_port_forwarding_rules`` in the CloudStack driver.
+  (LIBCLOUD-678, GITHUB-484)
+  [Atsushi Sasaki]
+
+- Fix an issue with ``list_nodes`` in the CloudSigma driver throwing an
+  exception if a node in the list had a static IP.
+  (LIBCLOUD-707, GITHUB-514)
+  [Chris O'Brien]
+
+- Don't throw an exception if a limit for a particular CloudStack resource is
+  "Unlimited" and not a number.
+  (GITHUB-512)
+  [Syed Mushtaq Ahmed]
+
+- Allow user to pass ``ex_config_drive`` argument to the ``create_node`` method
+  in the OpenStack driver.
+  (LIBCLOUD-356, GITHUB-330)
+  [Ryan Parrish]
+
+- Add new driver for Cloudwatt (https://www.cloudwatt.com/en/) provider.
+  (GITHUB-338)
+  [ZuluPro]
+
+- Add new driver for Packet (https://www.packet.net/) provider.
+  (LIBCLOUD-703, GITHUB-527)
+  [Aaron Welch]
+
+- Update Azure VM pricing information and add information for new D instance
+  types.
+  (GITHUB-528)
+  [Michael Bennett]
+
+- Add ``ex_get_node`` and ``ex_get_volume`` methods to CloudStack driver.
+  (GITHUB-532)
+  [ZuluPro]
+
+- Update CloudSigma driver so the "unavailable" and "paused" node state is
+  correctly mapped to "error" and "paused" respectively.
+  (GITHUB-517)
+  [Chris O'Brien]
+
+- Add SSH key pair management methods to the Gandi driver.
+  (GITHUB-534)
+  [ZuluPro]
+
+- Add ``ex_get_node`` and ``ex_get_volume`` methods to Gandi driver.
+  (GITHUB-534)
+  [ZuluPro]
+
+- Add ``fault`` attribute to the ``extra`` dictionary of the ``Node`` instance
+  returned by the OpenStack driver.
+  (LIBCLOUD-730, GITHUB-557)
+  [Nick Fox]
+
+- Add new driver for Onapp IaaS platform.
+  (LIBCLOUD-691, GITHUB-502)
+  [Matthias Wiesner]
+
+- Allow user to inject custom data / script into the Azure node by passing
+  ``ex_custom_data`` argument to the ``create_node`` method.
+  (LIBCLOUD-726, GITHUB-554)
+  [David Wilson]
+
+- Add ``ex_create_cloud_service`` and ``ex_destroy_cloud_service`` method to the
+  Azure driver.
+  (LIBCLOUD-724, GITHUB-551)
+  [David Wilson]
+
+Storage
+~~~~~~~
+
+- Fix a bug with authentication in the OpenStack Swift driver.
+  (GITHUB-492, LIBCLOUD-635)
+  [Tom Fifield]
+
+- Add AuroraObjects Storage Driver.
+  (GITHUB-540, LIBCLOUD-719)
+  [Wido den Hollander]
+
+Loadbalancer
+~~~~~~~~~~~~
+
+- Add a new driver for Softlayer load-balancing service
+  (https://www.softlayer.com/load-balancing).
+  (GITHUB-500, LIBCLOUD-688)
+  [Avi Weit]
+
 DNS
 ~~~
 
@@ -70,6 +293,18 @@ DNS
   name in the Route53 driver.
   (GITHUB-469)
   [Vanč Levstik]
+
+- Fix delete_zone method in the HostVirtual driver.
+  (GITHUB-461)
+  [Vanč Levstik]
+
+- Fix parsing of the record name in the HostVirtual driver.
+  (GITHUB-461)
+  [Vanč Levstik]
+
+- Add new driver for DigitalOcean DNS service.
+  (GITHUB-505)
+  [Javier Castillo II]
 
 Changes with Apache Libcloud 0.17.0
 -----------------------------------

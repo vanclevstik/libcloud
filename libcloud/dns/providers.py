@@ -44,6 +44,9 @@ DRIVERS = {
     ('libcloud.dns.drivers.cloudns', 'ClouDNSDNSDriver'),
     Provider.VULTR:
     ('libcloud.dns.drivers.vultr', 'VultrDNSDriver'),
+    Provider.DIGITAL_OCEAN:
+    ('libcloud.dns.drivers.digitalocean', 'DigitalOceanDNSDriver'),
+
     # Deprecated
     Provider.RACKSPACE_US:
     ('libcloud.dns.drivers.rackspace', 'RackspaceUSDNSDriver'),

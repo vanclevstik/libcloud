@@ -1,3 +1,5 @@
+.. NOTE: This file has been generated automatically using generate_provider_feature_matrix_table.py script, don't manually edit it
+
 ====================================== ======================================== ================= =============================================== ============================
 Provider                               Documentation                            Provider constant Module                                          Class Name                  
 ====================================== ======================================== ================= =============================================== ============================
@@ -10,6 +12,7 @@ Provider                               Documentation                            
 `Rackspace LB`_                                                                 RACKSPACE         :mod:`libcloud.loadbalancer.drivers.rackspace`  :class:`RackspaceLBDriver`  
 `Rackspace LB`_                                                                 RACKSPACE_UK      :mod:`libcloud.loadbalancer.drivers.rackspace`  :class:`RackspaceUKLBDriver`
 `Rackspace LB`_                                                                 RACKSPACE_US      :mod:`libcloud.loadbalancer.drivers.rackspace`  :class:`RackspaceLBDriver`  
+`Softlayer Load Balancing`_                                                     SOFTLAYER         :mod:`libcloud.loadbalancer.drivers.softlayer`  :class:`SoftlayerLBDriver`  
 ====================================== ======================================== ================= =============================================== ============================
 
 .. _`Brightbox`: http://www.brightbox.co.uk/
@@ -21,3 +24,4 @@ Provider                               Documentation                            
 .. _`Rackspace LB`: http://www.rackspace.com/
 .. _`Rackspace LB`: http://www.rackspace.com/
 .. _`Rackspace LB`: http://www.rackspace.com/
+.. _`Softlayer Load Balancing`: http://www.softlayer.com/

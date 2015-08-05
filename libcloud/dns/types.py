@@ -41,6 +41,7 @@ class Provider(object):
     LEASEWEB = 'leaseweb'
     CLOUDNS = 'cloudns'
     VULTR = 'vultr'
+    DIGITAL_OCEAN = 'digitalocean'
 
     # Deprecated
     RACKSPACE_US = 'rackspace_us'

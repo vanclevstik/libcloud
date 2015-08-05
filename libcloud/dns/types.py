@@ -34,8 +34,14 @@ class Provider(object):
     ZERIGO = 'zerigo'
     ROUTE53 = 'route53'
     HOSTVIRTUAL = 'hostvirtual'
+    HPCLOUD = 'hpcloud'
     GANDI = 'gandi'
     GOOGLE = 'google'
+    SOFTLAYER = 'softlayer'
+    LEASEWEB = 'leaseweb'
+    CLOUDNS = 'cloudns'
+    VULTR = 'vultr'
+    DIGITAL_OCEAN = 'digitalocean'
 
     # Deprecated
     RACKSPACE_US = 'rackspace_us'

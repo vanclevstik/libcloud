@@ -28,11 +28,25 @@ DRIVERS = {
     ('libcloud.dns.drivers.rackspace', 'RackspaceDNSDriver'),
     Provider.HOSTVIRTUAL:
     ('libcloud.dns.drivers.hostvirtual', 'HostVirtualDNSDriver'),
+    Provider.HPCLOUD:
+    ('libcloud.dns.drivers.hpcloud', 'HPCloudDNSDriver'),
     Provider.ROUTE53:
     ('libcloud.dns.drivers.route53', 'Route53DNSDriver'),
     Provider.GANDI:
     ('libcloud.dns.drivers.gandi', 'GandiDNSDriver'),
-    Provider.GOOGLE: ('libcloud.dns.drivers.google', 'GoogleDNSDriver'),
+    Provider.GOOGLE:
+    ('libcloud.dns.drivers.google', 'GoogleDNSDriver'),
+    Provider.SOFTLAYER:
+    ('libcloud.dns.drivers.softlayer', 'SoftLayerDNSDriver'),
+    Provider.LEASEWEB:
+    ('libcloud.dns.drivers.leaseweb', 'LeaseWebDNSDriver'),
+    Provider.CLOUDNS:
+    ('libcloud.dns.drivers.cloudns', 'ClouDNSDNSDriver'),
+    Provider.VULTR:
+    ('libcloud.dns.drivers.vultr', 'VultrDNSDriver'),
+    Provider.DIGITAL_OCEAN:
+    ('libcloud.dns.drivers.digitalocean', 'DigitalOceanDNSDriver'),
+
     # Deprecated
     Provider.RACKSPACE_US:
     ('libcloud.dns.drivers.rackspace', 'RackspaceUSDNSDriver'),

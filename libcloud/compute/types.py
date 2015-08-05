@@ -60,6 +60,7 @@ class Provider(object):
     :cvar NIMBUS: Nimbus
     :cvar BLUEBOX: Bluebox
     :cvar OPSOURCE: Opsource Cloud
+    :cvar DIMENSIONDATA: Dimension Data Cloud
     :cvar NINEFOLD: Ninefold
     :cvar TERREMARK: Terremark
     :cvar EC2_US_WEST_OREGON: Amazon AWS US West 2 (Oregon)
@@ -77,7 +78,11 @@ class Provider(object):
     :cvar OUTSCALE_SAS: Outscale SAS driver.
     :cvar OUTSCALE_INC: Outscale INC driver.
     :cvar PROFIT_BRICKS: ProfitBricks driver.
+    :cvar VULTR: vultr driver.
+    :cvar AZURE: Azure driver.
+    :cvar AURORACOMPUTE: Aurora Compute driver.
     """
+    AZURE = 'azure'
     DUMMY = 'dummy'
     EC2 = 'ec2_us_east'
     RACKSPACE = 'rackspace'
@@ -101,6 +106,7 @@ class Provider(object):
     BLUEBOX = 'bluebox'
     GANDI = 'gandi'
     OPSOURCE = 'opsource'
+    DIMENSIONDATA = 'dimensiondata'
     OPENSTACK = 'openstack'
     SKALICLOUD = 'skalicloud'
     SERVERLOVE = 'serverlove'
@@ -124,10 +130,16 @@ class Provider(object):
     OUTSCALE_INC = 'outscale_inc'
     VSPHERE = 'vsphere'
     PROFIT_BRICKS = 'profitbricks'
+    VULTR = 'vultr'
+    AURORACOMPUTE = 'aurora_compute'
+    CLOUDWATT = 'cloudwatt'
+    PACKET = 'packet'
 
     # OpenStack based providers
     HPCLOUD = 'hpcloud'
+    CLOUDWATT = 'cloudwatt'
     KILI = 'kili'
+    ONAPP = 'onapp'
 
     # Deprecated constants which are still supported
     EC2_US_EAST = 'ec2_us_east'
@@ -217,6 +229,21 @@ class NodeState(object):
     @classmethod
     def fromstring(cls, value):
         return getattr(cls, value.upper(), None)
+
+
+class StorageVolumeState(object):
+    """
+    Standard states of a StorageVolume
+    """
+    AVAILABLE = 0
+    ERROR = 1
+    INUSE = 2
+    CREATING = 3
+    DELETING = 4
+    DELETED = 5
+    BACKUP = 6
+    ATTACHING = 7
+    UNKNOWN = 8
 
 
 class Architecture(object):

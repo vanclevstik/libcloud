@@ -15,6 +15,7 @@
 
 from __future__ import with_statement
 
+import sys
 import base64
 import warnings
 
@@ -29,6 +30,19 @@ from libcloud.compute.base import KeyPair
 from libcloud.compute.types import NodeState, LibcloudError
 from libcloud.compute.types import KeyPairDoesNotExistError
 from libcloud.utils.networking import is_private_subnet
+
+
+# Utility functions
+def transform_int_or_unlimited(value):
+    try:
+        return int(value)
+    except ValueError:
+        e = sys.exc_info()[1]
+
+        if str(value).lower() == 'unlimited':
+            return -1
+
+        raise e
 
 
 """
@@ -181,6 +195,10 @@ RESOURCE_EXTRA_ATTRIBUTES_MAP = {
         'project_id': {
             'key_name': 'projectid',
             'transform_func': str
+        },
+        'nics:': {
+            'key_name': 'nic',
+            'transform_func': list
         }
     },
     'volume': {
@@ -190,7 +208,7 @@ RESOURCE_EXTRA_ATTRIBUTES_MAP = {
         },
         'device_id': {
             'key_name': 'deviceid',
-            'transform_func': int
+            'transform_func': transform_int_or_unlimited
         },
         'instance_id': {
             'key_name': 'virtualmachineid',
@@ -228,7 +246,7 @@ RESOURCE_EXTRA_ATTRIBUTES_MAP = {
         },
         'domain_id': {
             'key_name': 'domainid',
-            'transform_func': int
+            'transform_func': transform_int_or_unlimited
         },
         'network_domain': {
             'key_name': 'networkdomain',
@@ -253,55 +271,162 @@ RESOURCE_EXTRA_ATTRIBUTES_MAP = {
     },
     'project': {
         'account': {'key_name': 'account', 'transform_func': str},
-        'cpuavailable': {'key_name': 'cpuavailable', 'transform_func': int},
-        'cpulimit': {'key_name': 'cpulimit', 'transform_func': int},
-        'cputotal': {'key_name': 'cputotal', 'transform_func': int},
+        'cpuavailable': {'key_name': 'cpuavailable',
+                         'transform_func': transform_int_or_unlimited},
+        'cpulimit': {'key_name': 'cpulimit',
+                     'transform_func': transform_int_or_unlimited},
+        'cputotal': {'key_name': 'cputotal',
+                     'transform_func': transform_int_or_unlimited},
         'domain': {'key_name': 'domain', 'transform_func': str},
         'domainid': {'key_name': 'domainid', 'transform_func': str},
-        'ipavailable': {'key_name': 'ipavailable', 'transform_func': int},
-        'iplimit': {'key_name': 'iplimit', 'transform_func': int},
-        'iptotal': {'key_name': 'iptotal', 'transform_func': int},
+        'ipavailable': {'key_name': 'ipavailable',
+                        'transform_func': transform_int_or_unlimited},
+        'iplimit': {'key_name': 'iplimit',
+                    'transform_func': transform_int_or_unlimited},
+        'iptotal': {'key_name': 'iptotal',
+                    'transform_func': transform_int_or_unlimited},
         'memoryavailable': {'key_name': 'memoryavailable',
-                            'transform_func': int},
-        'memorylimit': {'key_name': 'memorylimit', 'transform_func': int},
-        'memorytotal': {'key_name': 'memorytotal', 'transform_func': int},
+                            'transform_func': transform_int_or_unlimited},
+        'memorylimit': {'key_name': 'memorylimit',
+                        'transform_func': transform_int_or_unlimited},
+        'memorytotal': {'key_name': 'memorytotal',
+                        'transform_func': transform_int_or_unlimited},
         'networkavailable': {'key_name': 'networkavailable',
-                             'transform_func': int},
-        'networklimit': {'key_name': 'networklimit', 'transform_func': int},
-        'networktotal': {'key_name': 'networktotal', 'transform_func': int},
-        'primarystorageavailable': {'key_name': 'primarystorageavailable',
-                                    'transform_func': int},
+                             'transform_func': transform_int_or_unlimited},
+        'networklimit': {'key_name': 'networklimit',
+                         'transform_func': transform_int_or_unlimited},
+        'networktotal': {'key_name': 'networktotal',
+                         'transform_func': transform_int_or_unlimited},
+        'primarystorageavailable': {
+            'key_name': 'primarystorageavailable',
+            'transform_func': transform_int_or_unlimited},
         'primarystoragelimit': {'key_name': 'primarystoragelimit',
-                                'transform_func': int},
+                                'transform_func': transform_int_or_unlimited},
         'primarystoragetotal': {'key_name': 'primarystoragetotal',
-                                'transform_func': int},
-        'secondarystorageavailable': {'key_name': 'secondarystorageavailable',
-                                      'transform_func': int},
-        'secondarystoragelimit': {'key_name': 'secondarystoragelimit',
-                                  'transform_func': int},
-        'secondarystoragetotal': {'key_name': 'secondarystoragetotal',
-                                  'transform_func': int},
+                                'transform_func': transform_int_or_unlimited},
+        'secondarystorageavailable': {
+            'key_name': 'secondarystorageavailable',
+            'transform_func': transform_int_or_unlimited},
+        'secondarystoragelimit': {
+            'key_name': 'secondarystoragelimit',
+            'transform_func': transform_int_or_unlimited},
+        'secondarystoragetotal': {
+            'key_name': 'secondarystoragetotal',
+            'transform_func': transform_int_or_unlimited},
         'snapshotavailable': {'key_name': 'snapshotavailable',
-                              'transform_func': int},
-        'snapshotlimit': {'key_name': 'snapshotlimit', 'transform_func': int},
-        'snapshottotal': {'key_name': 'snapshottotal', 'transform_func': int},
+                              'transform_func': transform_int_or_unlimited},
+        'snapshotlimit': {'key_name': 'snapshotlimit',
+                          'transform_func': transform_int_or_unlimited},
+        'snapshottotal': {'key_name': 'snapshottotal',
+                          'transform_func': transform_int_or_unlimited},
         'state': {'key_name': 'state', 'transform_func': str},
         'tags': {'key_name': 'tags', 'transform_func': str},
         'templateavailable': {'key_name': 'templateavailable',
-                              'transform_func': int},
-        'templatelimit': {'key_name': 'templatelimit', 'transform_func': int},
-        'templatetotal': {'key_name': 'templatetotal', 'transform_func': int},
-        'vmavailable': {'key_name': 'vmavailable', 'transform_func': int},
-        'vmlimit': {'key_name': 'vmlimit', 'transform_func': int},
-        'vmrunning': {'key_name': 'vmrunning', 'transform_func': int},
-        'vmtotal': {'key_name': 'vmtotal', 'transform_func': int},
+                              'transform_func': transform_int_or_unlimited},
+        'templatelimit': {'key_name': 'templatelimit',
+                          'transform_func': transform_int_or_unlimited},
+        'templatetotal': {'key_name': 'templatetotal',
+                          'transform_func': transform_int_or_unlimited},
+        'vmavailable': {'key_name': 'vmavailable',
+                        'transform_func': transform_int_or_unlimited},
+        'vmlimit': {'key_name': 'vmlimit',
+                    'transform_func': transform_int_or_unlimited},
+        'vmrunning': {'key_name': 'vmrunning',
+                      'transform_func': transform_int_or_unlimited},
+        'vmtotal': {'key_name': 'vmtotal',
+                    'transform_func': transform_int_or_unlimited},
         'volumeavailable': {'key_name': 'volumeavailable',
-                            'transform_func': int},
-        'volumelimit': {'key_name': 'volumelimit', 'transform_func': int},
-        'volumetotal': {'key_name': 'volumetotal', 'transform_func': int},
-        'vpcavailable': {'key_name': 'vpcavailable', 'transform_func': int},
-        'vpclimit': {'key_name': 'vpclimit', 'transform_func': int},
-        'vpctotal': {'key_name': 'vpctotal', 'transform_func': int}
+                            'transform_func': transform_int_or_unlimited},
+        'volumelimit': {'key_name': 'volumelimit',
+                        'transform_func': transform_int_or_unlimited},
+        'volumetotal': {'key_name': 'volumetotal',
+                        'transform_func': transform_int_or_unlimited},
+        'vpcavailable': {'key_name': 'vpcavailable',
+                         'transform_func': transform_int_or_unlimited},
+        'vpclimit': {'key_name': 'vpclimit',
+                     'transform_func': transform_int_or_unlimited},
+        'vpctotal': {'key_name': 'vpctotal',
+                     'transform_func': transform_int_or_unlimited}
+    },
+    'nic': {
+        'secondary_ip': {
+            'key_name': 'secondaryip',
+            'transform_func': list
+        }
+    },
+    'vpngateway': {
+        'for_display': {
+            'key_name': 'fordisplay',
+            'transform_func': str
+        },
+        'project': {
+            'key_name': 'project',
+            'transform_func': str
+        },
+        'project_id': {
+            'key_name': 'projectid',
+            'transform_func': str
+        },
+        'removed': {
+            'key_name': 'removed',
+            'transform_func': str
+        }
+    },
+    'vpncustomergateway': {
+        'account': {
+            'key_name': 'account',
+            'transform_func': str
+        },
+        'domain': {
+            'key_name': 'domain',
+            'transform_func': str
+        },
+        'domain_id': {
+            'key_name': 'domainid',
+            'transform_func': str
+        },
+        'dpd': {
+            'key_name': 'dpd',
+            'transform_func': bool
+        },
+        'esp_lifetime': {
+            'key_name': 'esplifetime',
+            'transform_func': transform_int_or_unlimited
+        },
+        'ike_lifetime': {
+            'key_name': 'ikelifetime',
+            'transform_func': transform_int_or_unlimited
+        },
+        'name': {
+            'key_name': 'name',
+            'transform_func': str
+        }
+    },
+    'vpnconnection': {
+        'account': {
+            'key_name': 'account',
+            'transform_func': str
+        },
+        'domain': {
+            'key_name': 'domain',
+            'transform_func': str
+        },
+        'domain_id': {
+            'key_name': 'domainid',
+            'transform_func': str
+        },
+        'for_display': {
+            'key_name': 'fordisplay',
+            'transform_func': str
+        },
+        'project': {
+            'key_name': 'project',
+            'transform_func': str
+        },
+        'project_id': {
+            'key_name': 'projectid',
+            'transform_func': str
+        }
     }
 }
 
@@ -387,13 +512,23 @@ class CloudStackAddress(object):
     :param      associated_network_id: The ID of the network where this address
                                         has been associated with
     :type       associated_network_id: ``str``
+
+    :param      vpc_id: VPC the ip belongs to
+    :type       vpc_id: ``str``
+
+    :param      virtualmachine_id: The ID of virutal machine this address
+                                   is assigned to
+    :type       virtualmachine_id: ``str``
     """
 
-    def __init__(self, id, address, driver, associated_network_id=None):
+    def __init__(self, id, address, driver, associated_network_id=None,
+                 vpc_id=None, virtualmachine_id=None):
         self.id = id
         self.address = address
         self.driver = driver
         self.associated_network_id = associated_network_id
+        self.vpc_id = vpc_id
+        self.virtualmachine_id = virtualmachine_id
 
     def release(self):
         self.driver.ex_release_public_ip(address=self)
@@ -522,6 +657,32 @@ class CloudStackIPForwardingRule(object):
     """
 
     def __init__(self, node, id, address, protocol, start_port, end_port=None):
+        """
+        A NAT/firewall forwarding rule.
+
+        @note: This is a non-standard extension API, and only works for
+               CloudStack.
+
+        :param      node: Node for rule
+        :type       node: :class:`Node`
+
+        :param      id: Rule ID
+        :type       id: ``int``
+
+        :param      address: External IP address
+        :type       address: :class:`CloudStackAddress`
+
+        :param      protocol: TCP/IP Protocol (TCP, UDP)
+        :type       protocol: ``str``
+
+        :param      start_port: Start port for the rule
+        :type       start_port: ``int``
+
+        :param      end_port: End port for the rule
+        :type       end_port: ``int``
+
+        :rtype: :class:`CloudStackIPForwardingRule`
+        """
         self.node = node
         self.id = id
         self.address = address
@@ -542,7 +703,8 @@ class CloudStackPortForwardingRule(object):
     """
 
     def __init__(self, node, rule_id, address, protocol, public_port,
-                 private_port, public_end_port=None, private_end_port=None):
+                 private_port, public_end_port=None, private_end_port=None,
+                 network_id=None):
         """
         A Port forwarding rule for Source NAT.
 
@@ -574,6 +736,12 @@ class CloudStackPortForwardingRule(object):
         :param      private_end_port: End of internal port range
         :type       private_end_port: ``int``
 
+        :param      network_id: The network of the vm the Port Forwarding rule
+                                will be created for. Required when public Ip
+                                address is not associated with any Guest
+                                network yet (VPC case)
+        :type       network_id: ``str``
+
         :rtype: :class:`CloudStackPortForwardingRule`
         """
         self.node = node
@@ -587,6 +755,102 @@ class CloudStackPortForwardingRule(object):
 
     def delete(self):
         self.node.ex_delete_port_forwarding_rule(rule=self)
+
+    def __eq__(self, other):
+        return self.__class__ is other.__class__ and self.id == other.id
+
+
+class CloudStackNetworkACLList(object):
+    """
+    a Network ACL for the given VPC
+    """
+
+    def __init__(self, acl_id, name, vpc_id, driver, description=None):
+        """
+        a Network ACL for the given VPC
+
+        @note: This is a non-standard extension API, and only works for
+               Cloudstack.
+
+        :param      acl_id: ACL ID
+        :type       acl_id: ``int``
+
+        :param      name: Name of the network ACL List
+        :type       name: ``str``
+
+        :param      vpc_id: Id of the VPC associated with this network ACL List
+        :type       vpc_id: ``string``
+
+        :param      description: Description of the network ACL List
+        :type       description: ``str``
+
+        :rtype: :class:`CloudStackNetworkACLList`
+        """
+
+        self.id = acl_id
+        self.name = name
+        self.vpc_id = vpc_id
+        self.driver = driver
+        self.description = description
+
+    def __repr__(self):
+        return (('<CloudStackNetworkACLList: id=%s, name=%s, vpc_id=%s, '
+                 'driver=%s, description=%s>')
+                % (self.id, self.name, self.vpc_id,
+                   self.driver.name, self.description))
+
+
+class CloudStackNetworkACL(object):
+    """
+    a ACL rule in the given network (the network has to belong to VPC)
+    """
+
+    def __init__(self, id, protocol, acl_id, action, cidr_list,
+                 start_port, end_port, traffic_type=None):
+        """
+        a ACL rule in the given network (the network has to belong to
+        VPC)
+
+        @note: This is a non-standard extension API, and only works for
+               Cloudstack.
+
+        :param      id: the ID of the ACL Item
+        :type       id ``int``
+
+        :param      protocol: the protocol for the ACL rule. Valid values are
+                    TCP/UDP/ICMP/ALL or valid protocol number
+        :type       protocol: ``string``
+
+        :param      acl_id: Name of the network ACL List
+        :type       acl_id: ``str``
+
+        :param      action: scl entry action, allow or deny
+        :type       action: ``string``
+
+        :param      cidr_list: the cidr list to allow traffic from/to
+        :type       cidr_list: ``str``
+
+        :param      start_port: the starting port of ACL
+        :type       start_port: ``str``
+
+        :param      end_port: the ending port of ACL
+        :type       end_port: ``str``
+
+        :param      traffic_type: the traffic type for the ACL,can be Ingress
+                    or Egress, defaulted to Ingress if not specified
+        :type       traffic_type: ``str``
+
+        :rtype: :class:`CloudStackNetworkACL`
+        """
+
+        self.id = id
+        self.protocol = protocol
+        self.acl_id = acl_id
+        self.action = action
+        self.cidr_list = cidr_list
+        self.start_port = start_port
+        self.end_port = end_port
+        self.traffic_type = traffic_type
 
     def __eq__(self, other):
         return self.__class__ is other.__class__ and self.id == other.id
@@ -623,10 +887,11 @@ class CloudStackNetwork(object):
         self.extra = extra or {}
 
     def __repr__(self):
-        return (('<CloudStackNetwork: id=%s, displaytext=%s, name=%s, '
-                 'networkofferingid=%s, zoneid=%s, driver%s>')
-                % (self.id, self.displaytext, self.name,
-                   self.networkofferingid, self.zoneid, self.driver.name))
+        return (('<CloudStackNetwork: displaytext=%s, name=%s, '
+                 'networkofferingid=%s, '
+                 'id=%s, zoneid=%s, driver=%s>')
+                % (self.displaytext, self.name, self.networkofferingid,
+                   self.id, self.zoneid, self.driver.name))
 
 
 class CloudStackNetworkOffering(object):
@@ -648,10 +913,39 @@ class CloudStackNetworkOffering(object):
     def __repr__(self):
         return (('<CloudStackNetworkOffering: id=%s, name=%s, '
                  'display_text=%s, guest_ip_type=%s, service_offering_id=%s, '
-                 'for_vpc=%s, driver%s>')
+                 'for_vpc=%s, driver=%s>')
                 % (self.id, self.name, self.display_text,
                    self.guest_ip_type, self.service_offering_id, self.for_vpc,
                    self.driver.name))
+
+
+class CloudStackNic(object):
+    """
+    Class representing a CloudStack Network Interface.
+    """
+
+    def __init__(self, id, network_id, net_mask, gateway, ip_address,
+                 is_default, mac_address, driver, extra=None):
+        self.id = id
+        self.network_id = network_id
+        self.net_mask = net_mask
+        self.gateway = gateway
+        self.ip_address = ip_address
+        self.is_default = is_default
+        self.mac_address = mac_address
+        self.driver = driver
+        self.extra = extra or {}
+
+    def __repr__(self):
+        return (('<CloudStackNic: id=%s, network_id=%s, '
+                 'net_mask=%s, gateway=%s, ip_address=%s, '
+                 'is_default=%s, mac_address=%s, driver%s>')
+                % (self.id, self.network_id, self.net_mask,
+                   self.gateway, self.ip_address, self.is_default,
+                   self.mac_address, self.driver.name))
+
+    def __eq__(self, other):
+        return self.__class__ is other.__class__ and self.id == other.id
 
 
 class CloudStackVPC(object):
@@ -659,8 +953,8 @@ class CloudStackVPC(object):
     Class representing a CloudStack VPC.
     """
 
-    def __init__(self, display_text, name, vpc_offering_id, id, zone_id, cidr,
-                 driver, extra=None):
+    def __init__(self, name, vpc_offering_id, id, cidr, driver,
+                 zone_id=None, display_text=None, extra=None):
         self.display_text = display_text
         self.name = name
         self.vpc_offering_id = vpc_offering_id
@@ -671,11 +965,11 @@ class CloudStackVPC(object):
         self.extra = extra or {}
 
     def __repr__(self):
-        return (('<CloudStackVPC: id=%s, displaytext=%s, name=%s, '
-                 'vpc_offering_id=%s, zoneid=%s, cidr=%s, driver%s>')
-                % (self.id, self.displaytext, self.name,
-                   self.vpc_offering_id, self.zoneid, self.cidr,
-                   self.driver.name))
+        return (('<CloudStackVPC: name=%s, vpc_offering_id=%s, id=%s, '
+                 'cidr=%s, driver=%s, zone_id=%s, display_text=%s>')
+                % (self.name, self.vpc_offering_id, self.id,
+                   self.cidr, self.driver.name, self.zone_id,
+                   self.display_text))
 
 
 class CloudStackVPCOffering(object):
@@ -692,11 +986,134 @@ class CloudStackVPCOffering(object):
         self.extra = extra or {}
 
     def __repr__(self):
-        return (('<CloudStackVPCOffering: id=%s, name=%s, '
-                 'display_text=%s, '
-                 'driver%s>')
-                % (self.id, self.name, self.display_text,
+        return (('<CloudStackVPCOffering: name=%s, display_text=%s, '
+                 'id=%s, '
+                 'driver=%s>')
+                % (self.name, self.display_text, self.id,
                    self.driver.name))
+
+
+class CloudStackVpnGateway(object):
+    """
+    Class representing a CloudStack VPN Gateway.
+    """
+    def __init__(self, id, account, domain, domain_id,
+                 public_ip, vpc_id, driver, extra=None):
+        self.id = id
+        self.account = account
+        self.domain = domain
+        self.domain_id = domain_id
+        self.public_ip = public_ip
+        self.vpc_id = vpc_id
+        self.driver = driver
+        self.extra = extra or {}
+
+    @property
+    def vpc(self):
+        for vpc in self.driver.ex_list_vpcs():
+            if self.vpc_id == vpc.id:
+                return vpc
+
+        raise LibcloudError('VPC with id=%s not found' % self.vpc_id)
+
+    def delete(self):
+        return self.driver.ex_delete_vpn_gateway(vpn_gateway=self)
+
+    def __repr__(self):
+        return (('<CloudStackVpnGateway: account=%s, domain=%s, '
+                 'domain_id=%s, id=%s, public_ip=%s, vpc_id=%s, '
+                 'driver=%s>')
+                % (self.account, self.domain, self.domain_id,
+                   self.id, self.public_ip, self.vpc_id, self.driver.name))
+
+
+class CloudStackVpnCustomerGateway(object):
+    """
+    Class representing a CloudStack VPN Customer Gateway.
+    """
+    def __init__(self, id, cidr_list, esp_policy, gateway,
+                 ike_policy, ipsec_psk, driver, extra=None):
+        self.id = id
+        self.cidr_list = cidr_list
+        self.esp_policy = esp_policy
+        self.gateway = gateway
+        self.ike_policy = ike_policy
+        self.ipsec_psk = ipsec_psk
+        self.driver = driver
+        self.extra = extra or {}
+
+    def delete(self):
+        return self.driver.ex_delete_vpn_customer_gateway(
+            vpn_customer_gateway=self)
+
+    def __repr__(self):
+        return (('<CloudStackVpnCustomerGateway: id=%s, cidr_list=%s, '
+                 'esp_policy=%s, gateway=%s, ike_policy=%s, ipsec_psk=%s, '
+                 'driver=%s>')
+                % (self.id, self.cidr_list, self.esp_policy, self.gateway,
+                   self.ike_policy, self.ipsec_psk, self.driver.name))
+
+
+class CloudStackVpnConnection(object):
+    """
+    Class representing a CloudStack VPN Connection.
+    """
+    def __init__(self, id, passive, vpn_customer_gateway_id,
+                 vpn_gateway_id, state, driver, extra=None):
+        self.id = id
+        self.passive = passive
+        self.vpn_customer_gateway_id = vpn_customer_gateway_id
+        self.vpn_gateway_id = vpn_gateway_id
+        self.state = state
+        self.driver = driver
+        self.extra = extra or {}
+
+    @property
+    def vpn_customer_gateway(self):
+        try:
+            return self.driver.ex_list_vpn_customer_gateways(
+                id=self.vpn_customer_gateway_id)[0]
+        except IndexError:
+            raise LibcloudError('VPN Customer Gateway with id=%s not found' %
+                                self.vpn_customer_gateway_id)
+
+    @property
+    def vpn_gateway(self):
+        try:
+            return self.driver.ex_list_vpn_gateways(id=self.vpn_gateway_id)[0]
+        except IndexError:
+            raise LibcloudError('VPN Gateway with id=%s not found' %
+                                self.vpn_gateway_id)
+
+    def delete(self):
+        return self.driver.ex_delete_vpn_connection(vpn_connection=self)
+
+    def __repr__(self):
+        return (('<CloudStackVpnConnection: id=%s, passive=%s, '
+                 'vpn_customer_gateway_id=%s, vpn_gateway_id=%s, state=%s, '
+                 'driver=%s>')
+                % (self.id, self.passive, self.vpn_customer_gateway_id,
+                   self.vpn_gateway_id, self.state, self.driver.name))
+
+
+class CloudStackRouter(object):
+    """
+    Class representing a CloudStack Router.
+    """
+
+    def __init__(self, id, name, state, public_ip, vpc_id, driver):
+        self.id = id
+        self.name = name
+        self.state = state
+        self.public_ip = public_ip
+        self.vpc_id = vpc_id
+        self.driver = driver
+
+    def __repr__(self):
+        return (('<CloudStackRouter: id=%s, name=%s, state=%s, '
+                 'public_ip=%s, vpc_id=%s, driver=%s>')
+                % (self.id, self.name, self.state,
+                   self.public_ip, self.vpc_id, self.driver.name))
 
 
 class CloudStackProject(object):
@@ -712,10 +1129,89 @@ class CloudStackProject(object):
         self.extra = extra or {}
 
     def __repr__(self):
-        return (('<CloudStackProject: id=%s, display_text=%s, name=%s, '
+        return (('<CloudStackProject: id=%s, name=%s, display_text=%s,'
                  'driver=%s>')
                 % (self.id, self.display_text, self.name,
                    self.driver.name))
+
+
+class CloudStackAffinityGroup(object):
+    """
+    Class representing a CloudStack AffinityGroup.
+    """
+
+    def __init__(self, id, account, description, domain, domainid, name,
+                 group_type, virtualmachine_ids):
+        """
+        A CloudStack Affinity Group.
+
+        @note: This is a non-standard extension API, and only works for
+               CloudStack.
+
+        :param      id: CloudStack Affinity Group ID
+        :type       id: ``str``
+
+        :param      account: An account for the affinity group. Must be used
+                             with domainId.
+        :type       account: ``str``
+
+        :param      description: optional description of the affinity group
+        :type       description: ``str``
+
+        :param      domain: the domain name of the affinity group
+        :type       domain: ``str``
+
+        :param      domainid: domain ID of the account owning the affinity
+                              group
+        :type       domainid: ``str``
+
+        :param      name: name of the affinity group
+        :type       name: ``str``
+
+        :param      group_type: the type of the affinity group
+        :type       group_type: :class:`CloudStackAffinityGroupType`
+
+        :param      virtualmachine_ids: virtual machine Ids associated with
+                                        this affinity group
+        :type       virtualmachine_ids: ``str``
+
+        :rtype:     :class:`CloudStackAffinityGroup`
+        """
+        self.id = id
+        self.account = account
+        self.description = description
+        self.domain = domain
+        self.domainid = domainid
+        self.name = name
+        self.type = group_type
+        self.virtualmachine_ids = virtualmachine_ids
+
+    def __repr__(self):
+        return (('<CloudStackAffinityGroup: id=%s, name=%s, type=%s>')
+                % (self.id, self.name, self.type))
+
+
+class CloudStackAffinityGroupType(object):
+    """
+    Class representing a CloudStack AffinityGroupType.
+    """
+
+    def __init__(self, type_name):
+        """
+        A CloudStack Affinity Group Type.
+
+        @note: This is a non-standard extension API, and only works for
+               CloudStack.
+
+        :param      type_name: the type of the affinity group
+        :type       type_name: ``str``
+
+        :rtype: :class:`CloudStackAffinityGroupType`
+        """
+        self.type = type_name
+
+    def __repr__(self):
+        return (('<CloudStackAffinityGroupType: type=%s>') % self.type)
 
 
 class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
@@ -802,20 +1298,27 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         }
         if location is not None:
             args['zoneid'] = location.id
+
         imgs = self._sync_request(command='listTemplates',
                                   params=args,
                                   method='GET')
         images = []
         for img in imgs.get('template', []):
+
+            extra = {'hypervisor': img['hypervisor'],
+                     'format': img['format'],
+                     'os': img['ostypename'],
+                     'displaytext': img['displaytext']}
+
+            size = img.get('size', None)
+            if size is not None:
+                extra.update({'size': img['size']})
+
             images.append(NodeImage(
                 id=img['id'],
                 name=img['name'],
                 driver=self.connection.driver,
-                extra={
-                    'hypervisor': img['hypervisor'],
-                    'format': img['format'],
-                    'os': img['ostypename'],
-                    'displaytext': img['displaytext']}))
+                extra=extra))
         return images
 
     def list_locations(self):
@@ -906,6 +1409,80 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
 
         return nodes
 
+    def ex_get_node(self, node_id, project=None):
+        """
+        Return a Node object based on its ID.
+
+        :param  node_id: The id of the node
+        :type   node_id: ``str``
+
+        :keyword    project: Limit node returned to those configured under
+                             the defined project.
+        :type       project: :class:`.CloudStackProject`
+
+        :rtype: :class:`CloudStackNode`
+        """
+        list_nodes_args = {'id': node_id}
+        list_ips_args = {}
+        if project:
+            list_nodes_args['projectid'] = project.id
+            list_ips_args['projectid'] = project.id
+        vms = self._sync_request('listVirtualMachines', params=list_nodes_args)
+        if not vms:
+            raise Exception("Node '%s' not found" % node_id)
+        vm = vms['virtualmachine'][0]
+        addrs = self._sync_request('listPublicIpAddresses',
+                                   params=list_ips_args)
+
+        public_ips = {}
+        for addr in addrs.get('publicipaddress', []):
+            if 'virtualmachineid' not in addr:
+                continue
+            public_ips[addr['ipaddress']] = addr['id']
+
+        node = self._to_node(data=vm, public_ips=list(public_ips.keys()))
+
+        addresses = public_ips.items()
+        addresses = [CloudStackAddress(node, v, k) for k, v in addresses]
+        node.extra['ip_addresses'] = addresses
+
+        rules = []
+        list_fw_rules = {'virtualmachineid': node_id}
+        for addr in addresses:
+            result = self._sync_request('listIpForwardingRules',
+                                        params=list_fw_rules)
+            for r in result.get('ipforwardingrule', []):
+                if str(r['virtualmachineid']) == node.id:
+                    rule = CloudStackIPForwardingRule(node, r['id'],
+                                                      addr,
+                                                      r['protocol']
+                                                      .upper(),
+                                                      r['startport'],
+                                                      r['endport'])
+                    rules.append(rule)
+        node.extra['ip_forwarding_rules'] = rules
+
+        rules = []
+        public_ips = self.ex_list_public_ips()
+        result = self._sync_request('listPortForwardingRules',
+                                    params=list_fw_rules)
+        for r in result.get('portforwardingrule', []):
+            if str(r['virtualmachineid']) == node.id:
+                addr = [a for a in public_ips if
+                        a.address == r['ipaddress']]
+                rule = CloudStackPortForwardingRule(node, r['id'],
+                                                    addr[0],
+                                                    r['protocol'].upper(),
+                                                    r['publicport'],
+                                                    r['privateport'],
+                                                    r['publicendport'],
+                                                    r['privateendport'])
+                if not addr[0].address in node.public_ips:
+                    node.public_ips.append(addr[0].address)
+                rules.append(rule)
+        node.extra['port_forwarding_rules'] = rules
+        return node
+
     def list_sizes(self, location=None):
         """
         :rtype ``list`` of :class:`NodeSize`
@@ -953,8 +1530,18 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         :type       ex_ip_address: ``str``
 
         :keyword    ex_start_vm: Boolean to specify to start VM after creation
-                                 Defaults to True
+                                 Default Cloudstack behaviour is to start a VM,
+                                 if not specified.
+
         :type       ex_start_vm: ``bool``
+
+        :keyword    ex_rootdisksize: String with rootdisksize for the template
+        :type       ex_rootdisksize: ``str``
+
+        :keyword    ex_affinity_groups: List of affinity groups to assign to
+                                        the node
+        :type       ex_affinity_groups: ``list`` of
+                                        :class:`.CloudStackAffinityGroup`
 
         :rtype:     :class:`.CloudStackNode`
         """
@@ -984,6 +1571,8 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         ex_displayname = kwargs.get('ex_displayname', None)
         ex_ip_address = kwargs.get('ex_ip_address', None)
         ex_start_vm = kwargs.get('ex_start_vm', None)
+        ex_rootdisksize = kwargs.get('ex_rootdisksize', None)
+        ex_affinity_groups = kwargs.get('ex_affinity_groups', None)
 
         if name:
             server_params['name'] = name
@@ -1027,20 +1616,39 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         if ex_ip_address:
             server_params['ipaddress'] = ex_ip_address
 
-        if ex_start_vm is False:
+        if ex_rootdisksize:
+            server_params['rootdisksize'] = ex_rootdisksize
+
+        if ex_start_vm is not None:
             server_params['startvm'] = ex_start_vm
+
+        if ex_affinity_groups:
+            affinity_group_ids = ','.join(ag.id for ag in ex_affinity_groups)
+            server_params['affinitygroupids'] = affinity_group_ids
 
         return server_params
 
-    def destroy_node(self, node):
+    def destroy_node(self, node, ex_expunge=False):
         """
         @inherits: :class:`NodeDriver.reboot_node`
         :type node: :class:`CloudStackNode`
 
+        :keyword    ex_expunge: If true is passed, the vm is expunged
+                                immediately. False by default.
+        :type       ex_expunge: ``bool``
+
         :rtype: ``bool``
         """
+
+        args = {
+            'id': node.id,
+        }
+
+        if ex_expunge:
+            args['expunge'] = ex_expunge
+
         self._async_request(command='destroyVirtualMachine',
-                            params={'id': node.id},
+                            params=args,
                             method='GET')
         return True
 
@@ -1187,10 +1795,10 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         :param  name: the name of the network
         :type   name: ``str``
 
-        :param  network_offering: the network offering id
+        :param  network_offering: NetworkOffering object
         :type   network_offering: :class:'CloudStackNetworkOffering`
 
-        :param location: Zone
+        :param location: Zone object
         :type  location: :class:`NodeLocation`
 
         :param  gateway: Optional, the Gateway of this network
@@ -1320,18 +1928,48 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         for vpc in vpcs:
 
             networks.append(CloudStackVPC(
-                            vpc['displaytext'],
                             vpc['name'],
                             vpc['vpcofferingid'],
                             vpc['id'],
-                            vpc['zoneid'],
                             vpc['cidr'],
-                            self))
+                            self,
+                            vpc['zoneid'],
+                            vpc['displaytext']))
 
         return networks
 
+    def ex_list_routers(self, vpc_id=None):
+        """
+        List routers
+
+        :rtype ``list`` of :class:`CloudStackRouter`
+        """
+
+        args = {}
+
+        if vpc_id is not None:
+            args['vpcid'] = vpc_id
+
+        res = self._sync_request(command='listRouters',
+                                 params=args,
+                                 method='GET')
+        rts = res.get('router', [])
+
+        routers = []
+        for router in rts:
+
+            routers.append(CloudStackRouter(
+                router['id'],
+                router['name'],
+                router['state'],
+                router['publicip'],
+                router['vpcid'],
+                self))
+
+        return routers
+
     def ex_create_vpc(self, cidr, display_text, name, vpc_offering,
-                      zoneid):
+                      zone_id, network_domain=None):
         """
 
         Creates a VPC, only available in advanced zones.
@@ -1350,8 +1988,11 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         :param  vpc_offering: the ID of the VPC offering
         :type   vpc_offering: :class:'CloudStackVPCOffering`
 
-        :param  zoneid: the ID of the availability zone
-        :type   zoneid: ``str``
+        :param  zone_id: the ID of the availability zone
+        :type   zone_id: ``str``
+
+        :param  network_domain: Optional, the DNS domain of the network
+        :type   network_domain: ``str``
 
         :rtype: :class:`CloudStackVPC`
 
@@ -1364,8 +2005,11 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
             'displaytext': display_text,
             'name': name,
             'vpcofferingid': vpc_offering.id,
-            'zoneid': zoneid,
+            'zoneid': zone_id,
         }
+
+        if network_domain is not None:
+            args['networkdomain'] = network_domain
 
         result = self._sync_request(command='createVPC',
                                     params=args,
@@ -1373,13 +2017,13 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
 
         extra = self._get_extra_dict(result, extra_map)
 
-        vpc = CloudStackVPC(display_text,
-                            name,
+        vpc = CloudStackVPC(name,
                             vpc_offering.id,
                             result['id'],
-                            zoneid,
                             cidr,
                             self,
+                            zone_id,
+                            display_text,
                             extra=extra)
 
         return vpc
@@ -1529,6 +2173,37 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                                               extra=extra))
         return list_volumes
 
+    def ex_get_volume(self, volume_id, project=None):
+        """
+        Return a StorageVolume object based on its ID.
+
+        :param  volume_id: The id of the volume
+        :type   volume_id: ``str``
+
+        :keyword    project: Limit volume returned to those configured under
+                             the defined project.
+        :type       project: :class:`.CloudStackProject`
+
+        :rtype: :class:`CloudStackNode`
+        """
+        args = {'id': volume_id}
+        if project:
+            args['projectid'] = project.id
+        volumes = self._sync_request(command='listVolumes', params=args)
+        if not volumes:
+            raise Exception("Volume '%s' not found" % volume_id)
+        vol = volumes['volume'][0]
+
+        extra_map = RESOURCE_EXTRA_ATTRIBUTES_MAP['volume']
+        extra = self._get_extra_dict(vol, extra_map)
+
+        if 'tags' in vol:
+            extra['tags'] = self._get_resource_tags(vol['tags'])
+
+        volume = StorageVolume(id=vol['id'], name=vol['name'],
+                               size=vol['size'], driver=self, extra=extra)
+        return volume
+
     def list_key_pairs(self, **kwargs):
         """
         List registered key pairs.
@@ -1585,6 +2260,14 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         return key_pairs
 
     def get_key_pair(self, name):
+        """
+        Retrieve a single key pair.
+
+        :param name: Name of the key pair to retrieve.
+        :type name: ``str``
+
+        :rtype: :class:`.KeyPair`
+        """
         params = {'name': name}
         res = self._sync_request(command='listSSHKeyPairs',
                                  params=params,
@@ -1658,7 +2341,7 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         Delete an existing key pair.
 
         :param key_pair: Key pair object.
-        :type key_pair: :class`libcloud.compute.base.KeyPair`
+        :type key_pair: :class:`libcloud.compute.base.KeyPair`
 
         :param     projectid: The project associated with keypair
         :type      projectid: ``str``
@@ -1702,24 +2385,44 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
             ips.append(CloudStackAddress(ip['id'],
                                          ip['ipaddress'],
                                          self,
-                                         ip.get('associatednetworkid', [])))
+                                         ip.get('associatednetworkid', []),
+                                         ip.get('vpcid'),
+                                         ip.get('virtualmachineid')))
 
         return ips
 
-    def ex_allocate_public_ip(self, location=None):
+    def ex_allocate_public_ip(self, vpc_id=None, network_id=None,
+                              location=None):
         """
         Allocate a public IP.
+
+        :param vpc_id: VPC the ip belongs to
+        :type vpc_id: ``str``
+
+        :param network_id: Network where this IP is connected to.
+        :type network_id: ''str''
 
         :param location: Zone
         :type  location: :class:`NodeLocation`
 
         :rtype: :class:`CloudStackAddress`
         """
-        if location is None:
-            location = self.list_locations()[0]
+
+        args = {}
+
+        if location is not None:
+            args['zoneid'] = location.id
+        else:
+            args['zoneid'] = self.list_locations()[0].id
+
+        if vpc_id is not None:
+            args['vpcid'] = vpc_id
+
+        if network_id is not None:
+            args['networkid'] = network_id
 
         addr = self._async_request(command='associateIpAddress',
-                                   params={'zoneid': location.id},
+                                   params=args,
                                    method='GET')
         addr = addr['ipaddress']
         addr = CloudStackAddress(addr['id'], addr['ipaddress'], self)
@@ -1927,14 +2630,103 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                                   method='GET')
         return res['success']
 
-    def ex_list_port_forwarding_rules(self):
+    def ex_list_port_forwarding_rules(self, account=None, domain_id=None,
+                                      id=None, ipaddress_id=None,
+                                      is_recursive=None, keyword=None,
+                                      list_all=None, network_id=None,
+                                      page=None, page_size=None,
+                                      project_id=None):
         """
         Lists all Port Forwarding Rules
 
+        :param     account: List resources by account.
+                            Must be used with the domainId parameter
+        :type      account: ``str``
+
+        :param     domain_id: List only resources belonging to
+                                     the domain specified
+        :type      domain_id: ``str``
+
+        :param     for_display: List resources by display flag (only root
+                                admin is eligible to pass this parameter).
+        :type      for_display: ``bool``
+
+        :param     id: Lists rule with the specified ID
+        :type      id: ``str``
+
+        :param     ipaddress_id: list the rule belonging to
+                                this public ip address
+        :type      ipaddress_id: ``str``
+
+        :param     is_recursive: Defaults to false, but if true,
+                                lists all resources from
+                                the parent specified by the
+                                domainId till leaves.
+        :type      is_recursive: ``bool``
+
+        :param     keyword: List by keyword
+        :type      keyword: ``str``
+
+        :param     list_all: If set to false, list only resources
+                            belonging to the command's caller;
+                            if set to true - list resources that
+                            the caller is authorized to see.
+                            Default value is false
+        :type      list_all: ``bool``
+
+        :param     network_id: list port forwarding rules for ceratin network
+        :type      network_id: ``string``
+
+        :param     page: The page to list the keypairs from
+        :type      page: ``int``
+
+        :param     page_size: The number of results per page
+        :type      page_size: ``int``
+
+        :param     project_id: list objects by project
+        :type      project_id: ``str``
+
         :rtype: ``list`` of :class:`CloudStackPortForwardingRule`
         """
+
+        args = {}
+
+        if account is not None:
+            args['account'] = account
+
+        if domain_id is not None:
+            args['domainid'] = domain_id
+
+        if id is not None:
+            args['id'] = id
+
+        if ipaddress_id is not None:
+            args['ipaddressid'] = ipaddress_id
+
+        if is_recursive is not None:
+            args['isrecursive'] = is_recursive
+
+        if keyword is not None:
+            args['keyword'] = keyword
+
+        if list_all is not None:
+            args['listall'] = list_all
+
+        if network_id is not None:
+            args['networkid'] = network_id
+
+        if page is not None:
+            args['page'] = page
+
+        if page_size is not None:
+            args['pagesize'] = page_size
+
+        if project_id is not None:
+            args['projectid'] = project_id
+
         rules = []
         result = self._sync_request(command='listPortForwardingRules',
+                                    params=args,
                                     method='GET')
         if result != {}:
             public_ips = self.ex_list_public_ips()
@@ -1961,7 +2753,8 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                                        protocol,
                                        public_end_port=None,
                                        private_end_port=None,
-                                       openfirewall=True):
+                                       openfirewall=True,
+                                       network_id=None):
         """
         Creates a Port Forwarding Rule, used for Source NAT
 
@@ -1980,6 +2773,12 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         :param  node: The virtual machine
         :type   node: :class:`CloudStackNode`
 
+        :param  network_id: The network of the vm the Port Forwarding rule
+                            will be created for. Required when public Ip
+                            address is not associated with any Guest
+                            network yet (VPC case)
+        :type   network_id: ``string``
+
         :rtype: :class:`CloudStackPortForwardingRule`
         """
         args = {
@@ -1994,6 +2793,8 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
             args['publicendport'] = int(public_end_port)
         if private_end_port:
             args['privateendport'] = int(private_end_port)
+        if network_id:
+            args['networkid'] = network_id
 
         result = self._async_request(command='createPortForwardingRule',
                                      params=args,
@@ -2006,7 +2807,8 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                                             public_port,
                                             private_port,
                                             public_end_port,
-                                            private_end_port)
+                                            private_end_port,
+                                            network_id)
         node.extra['port_forwarding_rules'].append(rule)
         node.public_ips.append(address.address)
         return rule
@@ -2030,6 +2832,118 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                                   params={'id': rule.id},
                                   method='GET')
         return res['success']
+
+    def ex_list_ip_forwarding_rules(self, account=None, domain_id=None,
+                                    id=None, ipaddress_id=None,
+                                    is_recursive=None, keyword=None,
+                                    list_all=None, page=None, page_size=None,
+                                    project_id=None, virtualmachine_id=None):
+        """
+        Lists all NAT/firewall forwarding rules
+
+        :param     account: List resources by account.
+                            Must be used with the domainId parameter
+        :type      account: ``str``
+
+        :param     domain_id: List only resources belonging to
+                                     the domain specified
+        :type      domain_id: ``str``
+
+        :param     id: Lists rule with the specified ID
+        :type      id: ``str``
+
+        :param     ipaddress_id: list the rule belonging to
+                                this public ip address
+        :type      ipaddress_id: ``str``
+
+        :param     is_recursive: Defaults to false, but if true,
+                                lists all resources from
+                                the parent specified by the
+                                domainId till leaves.
+        :type      is_recursive: ``bool``
+
+        :param     keyword: List by keyword
+        :type      keyword: ``str``
+
+        :param     list_all: If set to false, list only resources
+                            belonging to the command's caller;
+                            if set to true - list resources that
+                            the caller is authorized to see.
+                            Default value is false
+        :type      list_all: ``bool``
+
+        :param     page: The page to list the keypairs from
+        :type      page: ``int``
+
+        :param     page_size: The number of results per page
+        :type      page_size: ``int``
+
+        :param     project_id: list objects by project
+        :type      project_id: ``str``
+
+        :param     virtualmachine_id: Lists all rules applied to
+                                     the specified Vm
+        :type      virtualmachine_id: ``str``
+
+        :rtype: ``list`` of :class:`CloudStackIPForwardingRule`
+        """
+
+        args = {}
+
+        if account is not None:
+            args['account'] = account
+
+        if domain_id is not None:
+            args['domainid'] = domain_id
+
+        if id is not None:
+            args['id'] = id
+
+        if ipaddress_id is not None:
+            args['ipaddressid'] = ipaddress_id
+
+        if is_recursive is not None:
+            args['isrecursive'] = is_recursive
+
+        if keyword is not None:
+            args['keyword'] = keyword
+
+        if list_all is not None:
+            args['listall'] = list_all
+
+        if page is not None:
+            args['page'] = page
+
+        if page_size is not None:
+            args['pagesize'] = page_size
+
+        if project_id is not None:
+            args['projectid'] = project_id
+
+        if virtualmachine_id is not None:
+            args['virtualmachineid'] = virtualmachine_id
+
+        result = self._sync_request(command='listIpForwardingRules',
+                                    params=args,
+                                    method='GET')
+
+        rules = []
+        if result != {}:
+            public_ips = self.ex_list_public_ips()
+            nodes = self.list_nodes()
+            for rule in result['ipforwardingrule']:
+                node = [n for n in nodes
+                        if n.id == str(rule['virtualmachineid'])]
+                addr = [a for a in public_ips if
+                        a.address == rule['ipaddress']]
+                rules.append(CloudStackIPForwardingRule
+                             (node[0],
+                              rule['id'],
+                              addr[0],
+                              rule['protocol'],
+                              rule['startport'],
+                              rule['endport']))
+        return rules
 
     def ex_create_ip_forwarding_rule(self, node, address, protocol,
                                      start_port, end_port=None):
@@ -2093,6 +3007,178 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                             params={'id': rule.id},
                             method='GET')
         return True
+
+    def ex_create_network_acllist(self, name, vpc_id, description=None):
+        """
+        Create an ACL List for a network within a VPC.
+
+        :param name: Name of the network ACL List
+        :type  name: ``string``
+
+        :param vpc_id: Id of the VPC associated with this network ACL List
+        :type  vpc_id: ``string``
+
+        :param description: Description of the network ACL List
+        :type  description: ``string``
+
+        :rtype: :class:`CloudStackNetworkACLList`
+        """
+
+        args = {
+            'name': name,
+            'vpcid': vpc_id
+        }
+        if description:
+            args['description'] = description
+
+        result = self._sync_request(command='createNetworkACLList',
+                                    params=args,
+                                    method='GET')
+
+        acl_list = CloudStackNetworkACLList(result['id'],
+                                            name,
+                                            vpc_id,
+                                            self,
+                                            description)
+        return acl_list
+
+    def ex_create_network_acl(self, protocol, acl_id, cidr_list,
+                              start_port, end_port, action=None,
+                              traffic_type=None):
+        """
+        Creates an ACL rule in the given network (the network has to belong to
+        VPC)
+
+        :param      protocol: the protocol for the ACL rule. Valid values are
+                    TCP/UDP/ICMP/ALL or valid protocol number
+        :type       protocol: ``string``
+
+        :param      acl_id: Name of the network ACL List
+        :type       acl_id: ``str``
+
+        :param      cidr_list: the cidr list to allow traffic from/to
+        :type       cidr_list: ``str``
+
+        :param      start_port: the starting port of ACL
+        :type       start_port: ``str``
+
+        :param      end_port: the ending port of ACL
+        :type       end_port: ``str``
+
+        :param      action: scl entry action, allow or deny
+        :type       action: ``str``
+
+        :param      traffic_type: the traffic type for the ACL,can be Ingress
+                    or Egress, defaulted to Ingress if not specified
+        :type       traffic_type: ``str``
+
+        :rtype: :class:`CloudStackNetworkACL`
+        """
+
+        args = {
+            'protocol': protocol,
+            'aclid': acl_id,
+            'cidrlist': cidr_list,
+            'startport': start_port,
+            'endport': end_port
+        }
+
+        if action:
+            args['action'] = action
+        else:
+            action = "allow"
+
+        if traffic_type:
+            args['traffictype'] = traffic_type
+
+        result = self._async_request(command='createNetworkACL',
+                                     params=args,
+                                     method='GET')
+
+        acl = CloudStackNetworkACL(result['networkacl']['id'],
+                                   protocol,
+                                   acl_id,
+                                   action,
+                                   cidr_list,
+                                   start_port,
+                                   end_port,
+                                   traffic_type)
+
+        return acl
+
+    def ex_list_network_acllists(self):
+        """
+        Lists all network ACLs
+
+        :rtype: ``list`` of :class:`CloudStackNetworkACLList`
+        """
+        acllists = []
+
+        result = self._sync_request(command='listNetworkACLLists',
+                                    method='GET')
+
+        if not result:
+            return acllists
+
+        for acllist in result['networkacllist']:
+            acllists.append(CloudStackNetworkACLList(acllist['id'],
+                                                     acllist['name'],
+                                                     acllist.get('vpcid', []),
+                                                     self,
+                                                     acllist['description']))
+
+        return acllists
+
+    def ex_replace_network_acllist(self, acl_id, network_id):
+        """
+        Create an ACL List for a network within a VPC.Replaces ACL associated
+        with a Network or private gateway
+
+        :param acl_id: the ID of the network ACL
+        :type  acl_id: ``string``
+
+        :param network_id: the ID of the network
+        :type  network_id: ``string``
+
+        :rtype: :class:`CloudStackNetworkACLList`
+        """
+
+        args = {
+            'aclid': acl_id,
+            'networkid': network_id
+        }
+
+        self._async_request(command='replaceNetworkACLList',
+                            params=args,
+                            method='GET')
+
+        return True
+
+    def ex_list_network_acl(self):
+        """
+        Lists all network ACL items
+
+        :rtype: ``list`` of :class:`CloudStackNetworkACL`
+        """
+        acls = []
+
+        result = self._sync_request(command='listNetworkACLs',
+                                    method='GET')
+
+        if not result:
+            return acls
+
+        for acl in result['networkacl']:
+            acls.append(CloudStackNetworkACL(acl['id'],
+                                             acl['protocol'],
+                                             acl['aclid'],
+                                             acl['action'],
+                                             acl['cidrlist'],
+                                             acl.get('startport', []),
+                                             acl.get('endport', []),
+                                             acl['traffictype']))
+
+        return acls
 
     def ex_list_keypairs(self, **kwargs):
         """
@@ -2478,6 +3564,111 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                             method='GET')
         return True
 
+    def ex_create_affinity_group(self, name, group_type):
+        """
+        Creates a new Affinity Group
+
+        :param name: Name of the affinity group
+        :type  name: ``str``
+
+        :param group_type: Type of the affinity group from the available
+                           affinity/anti-affinity group types
+        :type  group_type: :class:`CloudStackAffinityGroupType`
+
+        :param description: Optional description of the affinity group
+        :type  description: ``str``
+
+        :param domainid: domain ID of the account owning the affinity group
+        :type  domainid: ``str``
+
+        :rtype: :class:`CloudStackAffinityGroup`
+        """
+
+        for ag in self.ex_list_affinity_groups():
+            if name == ag.name:
+                raise LibcloudError('This Affinity Group name already exists')
+
+        params = {'name': name, 'type': group_type.type}
+
+        result = self._async_request(command='createAffinityGroup',
+                                     params=params,
+                                     method='GET')
+
+        return self._to_affinity_group(result['affinitygroup'])
+
+    def ex_delete_affinity_group(self, affinity_group):
+        """
+        Delete an Affinity Group
+
+        :param affinity_group: Instance of affinity group
+        :type  affinity_group: :class:`CloudStackAffinityGroup`
+
+        :rtype ``bool``
+        """
+        return self._async_request(command='deleteAffinityGroup',
+                                   params={'id': affinity_group.id},
+                                   method='GET')['success']
+
+    def ex_update_node_affinity_group(self, node, affinity_group_list):
+        """
+        Updates the affinity/anti-affinity group associations of a virtual
+        machine. The VM has to be stopped and restarted for the new properties
+        to take effect.
+
+        :param node: Node to update.
+        :type node: :class:`CloudStackNode`
+
+        :param affinity_group_list: List of CloudStackAffinityGroup to
+                                    associate
+        :type affinity_group_list: ``list`` of :class:`CloudStackAffinityGroup`
+
+        :rtype :class:`CloudStackNode`
+        """
+        affinity_groups = ','.join(ag.id for ag in affinity_group_list)
+
+        result = self._async_request(command='updateVMAffinityGroup',
+                                     params={
+                                         'id': node.id,
+                                         'affinitygroupids': affinity_groups},
+                                     method='GET')
+        return self._to_node(data=result['virtualmachine'])
+
+    def ex_list_affinity_groups(self):
+        """
+        List Affinity Groups
+
+        :rtype ``list`` of :class:`CloudStackAffinityGroup`
+        """
+        result = self._sync_request(command='listAffinityGroups', method='GET')
+
+        if not result.get('count'):
+            return []
+
+        affinity_groups = []
+        for ag in result['affinitygroup']:
+            affinity_groups.append(self._to_affinity_group(ag))
+
+        return affinity_groups
+
+    def ex_list_affinity_group_types(self):
+        """
+        List Affinity Group Types
+
+        :rtype ``list`` of :class:`CloudStackAffinityGroupTypes`
+        """
+        result = self._sync_request(command='listAffinityGroupTypes',
+                                    method='GET')
+
+        if not result.get('count'):
+            return []
+
+        affinity_group_types = []
+        for agt in result['affinityGroupType']:
+            affinity_group_types.append(
+                CloudStackAffinityGroupType(agt['type']))
+
+        return affinity_group_types
+
     def ex_register_iso(self, name, url, location=None, **kwargs):
         """
         Registers an existing ISO by URL.
@@ -2636,12 +3827,16 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
             list_snapshots.append(self._to_snapshot(snap))
         return list_snapshots
 
-    def create_volume_snapshot(self, volume):
+    def create_volume_snapshot(self, volume, name=None):
         """
         Create snapshot from volume
 
         :param      volume: Instance of ``StorageVolume``
         :type       volume: ``StorageVolume``
+
+        :param      name: The name of the snapshot is disregarded
+                          by CloudStack drivers
+        :type       name: `str`
 
         :rtype: :class:`VolumeSnapshot`
         """
@@ -2651,14 +3846,6 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         return self._to_snapshot(snapshot['snapshot'])
 
     def destroy_volume_snapshot(self, snapshot):
-        """
-        Destroy snapshot
-
-        :param      snapshot: Instance of ``VolumeSnapshot``
-        :type       volume: ``VolumeSnapshot``
-
-        :rtype: ``bool``
-        """
         self._async_request(command='deleteSnapshot',
                             params={'id': snapshot.id},
                             method='GET')
@@ -2712,6 +3899,619 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         ostypes = self._sync_request('listOsTypes')
         return ostypes['ostype']
 
+    def ex_list_nics(self, node):
+        """
+        List the available networks
+
+        :param      vm: Node Object
+        :type       vm: :class:`CloudStackNode
+
+        :rtype ``list`` of :class:`CloudStackNic`
+        """
+
+        res = self._sync_request(command='listNics',
+                                 params={'virtualmachineid': node.id},
+                                 method='GET')
+        items = res.get('nic', [])
+
+        nics = []
+        extra_map = RESOURCE_EXTRA_ATTRIBUTES_MAP['nic']
+        for item in items:
+            extra = self._get_extra_dict(item, extra_map)
+
+            nics.append(CloudStackNic(
+                id=item['id'],
+                network_id=item['networkid'],
+                net_mask=item['netmask'],
+                gateway=item['gateway'],
+                ip_address=item['ipaddress'],
+                is_default=item['isdefault'],
+                mac_address=item['macaddress'],
+                driver=self,
+                extra=extra))
+
+        return nics
+
+    def ex_attach_nic_to_node(self, node, network, ip_address=None):
+        """
+        Add an extra Nic to a VM
+
+        :param  network: NetworkOffering object
+        :type   network: :class:'CloudStackNetwork`
+
+        :param  node: Node Object
+        :type   node: :class:'CloudStackNode`
+
+        :param  ip_address: Optional, specific IP for this Nic
+        :type   ip_address: ``str``
+
+
+        :rtype: ``bool``
+        """
+
+        args = {
+            'virtualmachineid': node.id,
+            'networkid': network.id
+        }
+
+        if ip_address is not None:
+            args['ipaddress'] = ip_address
+
+        self._async_request(command='addNicToVirtualMachine',
+                            params=args)
+        return True
+
+    def ex_detach_nic_from_node(self, nic, node):
+
+        """
+        Remove Nic from a VM
+
+        :param  nic: Nic object
+        :type   nic: :class:'CloudStackNetwork`
+
+        :param  node: Node Object
+        :type   node: :class:'CloudStackNode`
+
+        :rtype: ``bool``
+        """
+
+        self._async_request(command='removeNicFromVirtualMachine',
+                            params={'nicid': nic.id,
+                                    'virtualmachineid': node.id})
+
+        return True
+
+    def ex_list_vpn_gateways(self, account=None, domain_id=None,
+                             for_display=None, id=None, is_recursive=None,
+                             keyword=None, list_all=None, page=None,
+                             page_size=None, project_id=None, vpc_id=None):
+        """
+        List VPN Gateways.
+
+        :param   account: List resources by account (must be
+                          used with the domain_id parameter).
+        :type    account: ``str``
+
+        :param   domain_id: List only resources belonging
+                            to the domain specified.
+        :type    domain_id: ``str``
+
+        :param   for_display: List resources by display flag (only root
+                              admin is eligible to pass this parameter).
+        :type    for_display: ``bool``
+
+        :param   id: ID of the VPN Gateway.
+        :type    id: ``str``
+
+        :param   is_recursive: Defaults to False, but if true, lists all
+                               resources from the parent specified by the
+                               domain ID till leaves.
+        :type    is_recursive: ``bool``
+
+        :param   keyword: List by keyword.
+        :type    keyword: ``str``
+
+        :param   list_all: If set to False, list only resources belonging to
+                           the command's caller; if set to True - list
+                           resources that the caller is authorized to see.
+                           Default value is False.
+        :type    list_all: ``str``
+
+        :param   page: Start from page.
+        :type    page: ``int``
+
+        :param   page_size: Items per page.
+        :type    page_size: ``int``
+
+        :param   project_id: List objects by project.
+        :type    project_id: ``str``
+
+        :param   vpc_id: List objects by VPC.
+        :type    vpc_id: ``str``
+
+        :rtype: ``list`` of :class:`CloudStackVpnGateway`
+        """
+        args = {}
+
+        if account is not None:
+            args['account'] = account
+
+        if domain_id is not None:
+            args['domainid'] = domain_id
+
+        if for_display is not None:
+            args['fordisplay'] = for_display
+
+        if id is not None:
+            args['id'] = id
+
+        if is_recursive is not None:
+            args['isrecursive'] = is_recursive
+
+        if keyword is not None:
+            args['keyword'] = keyword
+
+        if list_all is not None:
+            args['listall'] = list_all
+
+        if page is not None:
+            args['page'] = page
+
+        if page_size is not None:
+            args['pagesize'] = page_size
+
+        if project_id is not None:
+            args['projectid'] = project_id
+
+        if vpc_id is not None:
+            args['vpcid'] = vpc_id
+
+        res = self._sync_request(command='listVpnGateways',
+                                 params=args,
+                                 method='GET')
+
+        items = res.get('vpngateway', [])
+        vpn_gateways = []
+        extra_map = RESOURCE_EXTRA_ATTRIBUTES_MAP['vpngateway']
+
+        for item in items:
+            extra = self._get_extra_dict(item, extra_map)
+
+            vpn_gateways.append(CloudStackVpnGateway(
+                id=item['id'],
+                account=item['account'],
+                domain=item['domain'],
+                domain_id=item['domainid'],
+                public_ip=item['publicip'],
+                vpc_id=item['vpcid'],
+                driver=self,
+                extra=extra))
+
+        return vpn_gateways
+
+    def ex_create_vpn_gateway(self, vpc, for_display=None):
+        """
+        Creates a VPN Gateway.
+
+        :param vpc: VPC to create the Gateway for (required).
+        :type  vpc: :class: `CloudStackVPC`
+
+        :param for_display: Display the VPC to the end user or not.
+        :type  for_display: ``bool``
+
+        :rtype: :class: `CloudStackVpnGateway`
+        """
+        args = {
+            'vpcid': vpc.id,
+        }
+
+        if for_display is not None:
+            args['fordisplay'] = for_display
+
+        res = self._async_request(command='createVpnGateway',
+                                  params=args,
+                                  method='GET')
+
+        item = res['vpngateway']
+        extra_map = RESOURCE_EXTRA_ATTRIBUTES_MAP['vpngateway']
+
+        return CloudStackVpnGateway(id=item['id'],
+                                    account=item['account'],
+                                    domain=item['domain'],
+                                    domain_id=item['domainid'],
+                                    public_ip=item['publicip'],
+                                    vpc_id=vpc.id,
+                                    driver=self,
+                                    extra=self._get_extra_dict(item,
+                                                               extra_map))
+
+    def ex_delete_vpn_gateway(self, vpn_gateway):
+        """
+        Deletes a VPN Gateway.
+
+        :param vpn_gateway: The VPN Gateway (required).
+        :type  vpn_gateway: :class:`CloudStackVpnGateway`
+
+        :rtype: ``bool``
+        """
+        res = self._async_request(command='deleteVpnGateway',
+                                  params={'id': vpn_gateway.id},
+                                  method='GET')
+
+        return res['success']
+
+    def ex_list_vpn_customer_gateways(self, account=None, domain_id=None,
+                                      id=None, is_recursive=None,
+                                      keyword=None, list_all=None,
+                                      page=None, page_size=None,
+                                      project_id=None):
+        """
+        List VPN Customer Gateways.
+
+        :param   account: List resources by account (must be
+                          used with the domain_id parameter).
+        :type    account: ``str``
+
+        :param   domain_id: List only resources belonging
+                            to the domain specified.
+        :type    domain_id: ``str``
+
+        :param   id: ID of the VPN Customer Gateway.
+        :type    id: ``str``
+
+        :param   is_recursive: Defaults to False, but if true, lists all
+                               resources from the parent specified by the
+                               domain_id till leaves.
+        :type    is_recursive: ``bool``
+
+        :param   keyword: List by keyword.
+        :type    keyword: ``str``
+
+        :param   list_all: If set to False, list only resources belonging to
+                           the command's caller; if set to True - list
+                           resources that the caller is authorized to see.
+                           Default value is False.
+        :type    list_all: ``str``
+
+        :param   page: Start from page.
+        :type    page: ``int``
+
+        :param   page_size: Items per page.
+        :type    page_size: ``int``
+
+        :param   project_id: List objects by project.
+        :type    project_id: ``str``
+
+        :rtype: ``list`` of :class:`CloudStackVpnCustomerGateway`
+        """
+        args = {}
+
+        if account is not None:
+            args['account'] = account
+
+        if domain_id is not None:
+            args['domainid'] = domain_id
+
+        if id is not None:
+            args['id'] = id
+
+        if is_recursive is not None:
+            args['isrecursive'] = is_recursive
+
+        if keyword is not None:
+            args['keyword'] = keyword
+
+        if list_all is not None:
+            args['listall'] = list_all
+
+        if page is not None:
+            args['page'] = page
+
+        if page_size is not None:
+            args['pagesize'] = page_size
+
+        if project_id is not None:
+            args['projectid'] = project_id
+
+        res = self._sync_request(command='listVpnCustomerGateways',
+                                 params=args,
+                                 method='GET')
+
+        items = res.get('vpncustomergateway', [])
+        vpn_customer_gateways = []
+        extra_map = RESOURCE_EXTRA_ATTRIBUTES_MAP['vpncustomergateway']
+
+        for item in items:
+            extra = self._get_extra_dict(item, extra_map)
+
+            vpn_customer_gateways.append(CloudStackVpnCustomerGateway(
+                id=item['id'],
+                cidr_list=item['cidrlist'],
+                esp_policy=item['esppolicy'],
+                gateway=item['gateway'],
+                ike_policy=item['ikepolicy'],
+                ipsec_psk=item['ipsecpsk'],
+                driver=self,
+                extra=extra))
+
+        return vpn_customer_gateways
+
+    def ex_create_vpn_customer_gateway(self, cidr_list, esp_policy, gateway,
+                                       ike_policy, ipsec_psk, account=None,
+                                       domain_id=None, dpd=None,
+                                       esp_lifetime=None, ike_lifetime=None,
+                                       name=None):
+        """
+        Creates a VPN Customer Gateway.
+
+        :param cidr_list: Guest CIDR list of the Customer Gateway (required).
+        :type  cidr_list: ``str``
+
+        :param esp_policy: ESP policy of the Customer Gateway (required).
+        :type  esp_policy: ``str``
+
+        :param gateway: Public IP address of the Customer Gateway (required).
+        :type  gateway: ``str``
+
+        :param ike_policy: IKE policy of the Customer Gateway (required).
+        :type  ike_policy: ``str``
+
+        :param ipsec_psk: IPsec preshared-key of the Customer Gateway
+                          (required).
+        :type  ipsec_psk: ``str``
+
+        :param account: The associated account with the Customer Gateway
+                        (must be used with the domain_id param).
+        :type  account: ``str``
+
+        :param domain_id: The domain ID associated with the Customer Gateway.
+                          If used with the account parameter returns the
+                          gateway associated with the account for the
+                          specified domain.
+        :type  domain_id: ``str``
+
+        :param dpd: If DPD is enabled for the VPN connection.
+        :type  dpd: ``bool``
+
+        :param esp_lifetime: Lifetime of phase 2 VPN connection to the
+                             Customer Gateway, in seconds.
+        :type  esp_lifetime: ``int``
+
+        :param ike_lifetime: Lifetime of phase 1 VPN connection to the
+                             Customer Gateway, in seconds.
+        :type  ike_lifetime: ``int``
+
+        :param name: Name of the Customer Gateway.
+        :type  name: ``str``
+
+        :rtype: :class: `CloudStackVpnCustomerGateway`
+        """
+        args = {
+            'cidrlist': cidr_list,
+            'esppolicy': esp_policy,
+            'gateway': gateway,
+            'ikepolicy': ike_policy,
+            'ipsecpsk': ipsec_psk
+        }
+
+        if account is not None:
+            args['account'] = account
+
+        if domain_id is not None:
+            args['domainid'] = domain_id
+
+        if dpd is not None:
+            args['dpd'] = dpd
+
+        if esp_lifetime is not None:
+            args['esplifetime'] = esp_lifetime
+
+        if ike_lifetime is not None:
+            args['ikelifetime'] = ike_lifetime
+
+        if name is not None:
+            args['name'] = name
+
+        res = self._async_request(command='createVpnCustomerGateway',
+                                  params=args,
+                                  method='GET')
+
+        item = res['vpncustomergateway']
+        extra_map = RESOURCE_EXTRA_ATTRIBUTES_MAP['vpncustomergateway']
+
+        return CloudStackVpnCustomerGateway(id=item['id'],
+                                            cidr_list=cidr_list,
+                                            esp_policy=esp_policy,
+                                            gateway=gateway,
+                                            ike_policy=ike_policy,
+                                            ipsec_psk=ipsec_psk,
+                                            driver=self,
+                                            extra=self._get_extra_dict(
+                                                item, extra_map))
+
+    def ex_delete_vpn_customer_gateway(self, vpn_customer_gateway):
+        """
+        Deletes a VPN Customer Gateway.
+
+        :param vpn_customer_gateway: The VPN Customer Gateway (required).
+        :type  vpn_customer_gateway: :class:`CloudStackVpnCustomerGateway`
+
+        :rtype: ``bool``
+        """
+        res = self._async_request(command='deleteVpnCustomerGateway',
+                                  params={'id': vpn_customer_gateway.id},
+                                  method='GET')
+
+        return res['success']
+
+    def ex_list_vpn_connections(self, account=None, domain_id=None,
+                                for_display=None, id=None, is_recursive=None,
+                                keyword=None, list_all=None, page=None,
+                                page_size=None, project_id=None, vpc_id=None):
+        """
+        List VPN Connections.
+
+        :param   account: List resources by account (must be
+                          used with the domain_id parameter).
+        :type    account: ``str``
+
+        :param   domain_id: List only resources belonging
+                            to the domain specified.
+        :type    domain_id: ``str``
+
+        :param   for_display: List resources by display flag (only root
+                              admin is eligible to pass this parameter).
+        :type    for_display: ``bool``
+
+        :param   id: ID of the VPN Connection.
+        :type    id: ``str``
+
+        :param   is_recursive: Defaults to False, but if true, lists all
+                               resources from the parent specified by the
+                               domain_id till leaves.
+        :type    is_recursive: ``bool``
+
+        :param   keyword: List by keyword.
+        :type    keyword: ``str``
+
+        :param   list_all: If set to False, list only resources belonging to
+                           the command's caller; if set to True - list
+                           resources that the caller is authorized to see.
+                           Default value is False.
+        :type    list_all: ``str``
+
+        :param   page: Start from page.
+        :type    page: ``int``
+
+        :param   page_size: Items per page.
+        :type    page_size: ``int``
+
+        :param   project_id: List objects by project.
+        :type    project_id: ``str``
+
+        :param   vpc_id: List objects by VPC.
+        :type    vpc_id: ``str``
+
+        :rtype: ``list`` of :class:`CloudStackVpnConnection`
+        """
+        args = {}
+
+        if account is not None:
+            args['account'] = account
+
+        if domain_id is not None:
+            args['domainid'] = domain_id
+
+        if for_display is not None:
+            args['fordisplay'] = for_display
+
+        if id is not None:
+            args['id'] = id
+
+        if is_recursive is not None:
+            args['isrecursive'] = is_recursive
+
+        if keyword is not None:
+            args['keyword'] = keyword
+
+        if list_all is not None:
+            args['listall'] = list_all
+
+        if page is not None:
+            args['page'] = page
+
+        if page_size is not None:
+            args['pagesize'] = page_size
+
+        if project_id is not None:
+            args['projectid'] = project_id
+
+        if vpc_id is not None:
+            args['vpcid'] = vpc_id
+
+        res = self._sync_request(command='listVpnConnections',
+                                 params=args,
+                                 method='GET')
+
+        items = res.get('vpnconnection', [])
+        vpn_connections = []
+        extra_map = RESOURCE_EXTRA_ATTRIBUTES_MAP['vpnconnection']
+
+        for item in items:
+            extra = self._get_extra_dict(item, extra_map)
+
+            vpn_connections.append(CloudStackVpnConnection(
+                id=item['id'],
+                passive=item['passive'],
+                vpn_customer_gateway_id=item['s2scustomergatewayid'],
+                vpn_gateway_id=item['s2svpngatewayid'],
+                state=item['state'],
+                driver=self,
+                extra=extra))
+
+        return vpn_connections
+
+    def ex_create_vpn_connection(self, vpn_customer_gateway, vpn_gateway,
+                                 for_display=None, passive=None):
+        """
+        Creates a VPN Connection.
+
+        :param   vpn_customer_gateway: The VPN Customer Gateway (required).
+        :type    vpn_customer_gateway: :class:`CloudStackVpnCustomerGateway`
+
+        :param   vpn_gateway: The VPN Gateway (required).
+        :type    vpn_gateway: :class:`CloudStackVpnGateway`
+
+        :param   for_display: Display the Connection to the end user or not.
+        :type    for_display: ``str``
+
+        :param   passive: If True, sets the connection to be passive.
+        :type    passive: ``bool``
+
+        :rtype: :class: `CloudStackVpnConnection`
+        """
+        args = {
+            's2scustomergatewayid': vpn_customer_gateway.id,
+            's2svpngatewayid': vpn_gateway.id,
+        }
+
+        if for_display is not None:
+            args['fordisplay'] = for_display
+
+        if passive is not None:
+            args['passive'] = passive
+
+        res = self._async_request(command='createVpnConnection',
+                                  params=args,
+                                  method='GET')
+
+        item = res['vpnconnection']
+        extra_map = RESOURCE_EXTRA_ATTRIBUTES_MAP['vpnconnection']
+
+        return CloudStackVpnConnection(
+            id=item['id'],
+            passive=item['passive'],
+            vpn_customer_gateway_id=vpn_customer_gateway.id,
+            vpn_gateway_id=vpn_gateway.id,
+            state=item['state'],
+            driver=self,
+            extra=self._get_extra_dict(item, extra_map))
+
+    def ex_delete_vpn_connection(self, vpn_connection):
+        """
+        Deletes a VPN Connection.
+
+        :param vpn_connection: The VPN Connection (required).
+        :type  vpn_connection: :class:`CloudStackVpnConnection`
+
+        :rtype: ``bool``
+        """
+        res = self._async_request(command='deleteVpnConnection',
+                                  params={'id': vpn_connection.id},
+                                  method='GET')
+
+        return res['success']
+
     def _to_snapshot(self, data):
         """
         Create snapshot object from data
@@ -2762,6 +4562,11 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         if security_groups:
             security_groups = [sg['name'] for sg in security_groups]
 
+        affinity_groups = data.get('affinitygroup', [])
+
+        if affinity_groups:
+            affinity_groups = [ag['id'] for ag in affinity_groups]
+
         created = data.get('created', False)
 
         extra = self._get_extra_dict(data,
@@ -2769,6 +4574,7 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
 
         # Add additional parameters to extra
         extra['security_group'] = security_groups
+        extra['affinity_group'] = affinity_groups
         extra['ip_addresses'] = []
         extra['ip_forwarding_rules'] = []
         extra['port_forwarding_rules'] = []
@@ -2793,6 +4599,19 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                            private_key=data.get('privatekey', None),
                            driver=self)
         return key_pair
+
+    def _to_affinity_group(self, data):
+        affinity_group = CloudStackAffinityGroup(
+            id=data['id'],
+            name=data['name'],
+            group_type=CloudStackAffinityGroupType(data['type']),
+            account=data.get('account', ''),
+            domain=data.get('domain', ''),
+            domainid=data.get('domainid', ''),
+            description=data.get('description', ''),
+            virtualmachine_ids=data.get('virtualmachineIds', ''))
+
+        return affinity_group
 
     def _get_resource_tags(self, tag_set):
         """

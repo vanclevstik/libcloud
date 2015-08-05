@@ -96,7 +96,7 @@ class ProfitBricksConnection(ConnectionUserAndKey):
         soap_env = ET.Element('soapenv:Envelope', {
             'xmlns:soapenv': 'http://schemas.xmlsoap.org/soap/envelope/',
             'xmlns:ws': 'http://ws.api.profitbricks.com/'
-            })
+        })
         ET.SubElement(soap_env, 'soapenv:Header')
         soap_body = ET.SubElement(soap_env, 'soapenv:Body')
         soap_req_body = ET.SubElement(soap_body, 'ws:%s' % (data['action']))
@@ -522,7 +522,7 @@ class ProfitBricksNodeDriver(NodeDriver):
         :param node: The node you wish to destroy.
         :type volume: :class:`Node`
 
-        :param ex_remove_attached_disks: True to destory all attached volumes.
+        :param ex_remove_attached_disks: True to destroy all attached volumes.
         :type ex_remove_attached_disks: : ``bool``
 
         :rtype:     : ``bool``

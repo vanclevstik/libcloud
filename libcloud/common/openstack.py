@@ -131,7 +131,7 @@ class OpenStackBaseConnection(ConnectionUserAndKey):
                  ex_force_service_type=None,
                  ex_force_service_name=None,
                  ex_force_service_region=None,
-                 retry_delay=None, backoff=None
+                 retry_delay=None, backoff=None,
                  ex_domain_name=None):
 
         super(OpenStackBaseConnection, self).__init__(

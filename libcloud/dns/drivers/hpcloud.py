@@ -102,12 +102,13 @@ class HPCloudDNSDriver(DNSDriver, OpenStackDriverMixin):
     def __init__(self, key, secret, ex_domain_name, ex_tenant_name,
                  secure=True, host=None, port=None, **kwargs):
         """
-        Note: ex_tenant_name  and ex_domain_name argument is required for HP cloud.
+        Note: ex_tenant_name  and ex_domain_name argument is required
+        for HP cloud.
         """
         OpenStackDriverMixin.__init__(self,
                                       ex_domain_name=ex_domain_name,
                                       ex_tenant_name=ex_tenant_name,
-                                    )
+                                      )
         super(HPCloudDNSDriver, self).__init__(key=key, secret=secret,
                                                secure=secure, host=host,
                                                port=port,
@@ -280,6 +281,6 @@ class HPCloudDNSDriver(DNSDriver, OpenStackDriverMixin):
 
     def _ex_connection_class_kwargs(self):
         kwargs = self.openstack_connection_kwargs()
-        kwargs['ex_force_auth_url'] = 'https://region-a.geo-1.identity.hpcloudsvc.com:35357/v3/auth/tokens'
+        kwargs['ex_force_auth_url'] = 'https://region-a.geo-1.identity.hpcloudsvc.com:35357/v3/auth/tokens'  # noqa
 
         return kwargs

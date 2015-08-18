@@ -22,11 +22,6 @@ from libcloud.dns.types import ZoneDoesNotExistError, RecordDoesNotExistError
 from libcloud.dns.types import ZoneAlreadyExistsError
 from libcloud.dns.base import DNSDriver, Zone, Record
 
-try:
-    import simplejson as json
-except:
-    import json
-
 VALID_RECORD_EXTRA_PARAMS = ['priority', 'ttl']
 
 

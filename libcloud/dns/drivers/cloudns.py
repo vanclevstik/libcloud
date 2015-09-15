@@ -143,6 +143,8 @@ class ClouDNSDNSDriver(DNSDriver):
         params = {'domain-name': zone.id}
         records_list = self.connection.request(
             '/dns/records.json', params=params).object
+        if not len(records_list):
+            return
         for item in records_list.itervalues():
             yield self._to_record(item, zone=zone)
 

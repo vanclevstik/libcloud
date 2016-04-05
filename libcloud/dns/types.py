@@ -49,6 +49,11 @@ class Provider(object):
     DURABLEDNS = 'durabledns'
     LEASEWEB = 'leaseweb'
     CLOUDNS = 'cloudns'
+    GODADDY = 'godaddy'
+    CLOUDFLARE = 'cloudflare'
+    NSONE = 'nsone'
+    LUADNS = 'luadns'
+    NFSN = 'nfsn'
 
     # Deprecated
     RACKSPACE_US = 'rackspace_us'
@@ -70,11 +75,9 @@ class RecordType(object):
     TXT = 'TXT'
     PTR = 'PTR'
     SOA = 'SOA'
-    HINFO = 'HINFO'
     SPF = 'SPF'
     SRV = 'SRV'
     SSHFP = 'SSHFP'
-    PTR = 'PTR'
     RP = 'RP'
     NAPTR = 'NAPTR'
     REDIRECT = 'REDIRECT'

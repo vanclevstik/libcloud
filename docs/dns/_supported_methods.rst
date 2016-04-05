@@ -4,13 +4,17 @@
 Provider              list zones list records create zone update zone create record update record delete zone delete record
 ===================== ========== ============ =========== =========== ============= ============= =========== =============
 `AuroraDNS`_          yes        yes          yes         no          yes           yes           yes         yes          
+`CloudFlare DNS`_     yes        yes          no          no          yes           yes           no          yes          
 `DigitalOcean`_       yes        yes          yes         no          yes           yes           yes         yes          
 `DNSimple`_           yes        yes          yes         no          yes           yes           yes         yes          
+`DurableDNS`_         yes        yes          yes         yes         yes           yes           yes         yes          
 `Gandi DNS`_          yes        yes          yes         yes         yes           yes           yes         yes          
+`GoDaddy DNS`_        yes        yes          no          no          yes           yes           yes         no           
 `Google DNS`_         yes        yes          yes         no          yes           no            yes         yes          
 `Host Virtual DNS`_   yes        yes          yes         yes         yes           yes           yes         yes          
 `Linode DNS`_         yes        yes          yes         yes         yes           yes           yes         yes          
 `Liquidweb DNS`_      yes        yes          yes         no          yes           yes           yes         yes          
+`NFSN DNS`_           no         yes          no          no          yes           no            no          yes          
 `Point DNS`_          yes        yes          yes         yes         yes           yes           yes         yes          
 `Rackspace DNS`_      yes        yes          yes         yes         yes           yes           yes         yes          
 `Rackspace DNS (UK)`_ yes        yes          yes         yes         yes           yes           yes         yes          
@@ -24,13 +28,17 @@ Provider              list zones list records create zone update zone create rec
 ===================== ========== ============ =========== =========== ============= ============= =========== =============
 
 .. _`AuroraDNS`: https://www.pcextreme.nl/en/aurora/dns
+.. _`CloudFlare DNS`: https://www.cloudflare.com
 .. _`DigitalOcean`: https://www.digitalocean.com
 .. _`DNSimple`: https://dnsimple.com/
+.. _`DurableDNS`: https://durabledns.com
 .. _`Gandi DNS`: http://www.gandi.net/domain
+.. _`GoDaddy DNS`: https://www.godaddy.com/
 .. _`Google DNS`: https://cloud.google.com/
 .. _`Host Virtual DNS`: https://www.hostvirtual.com/
 .. _`Linode DNS`: http://www.linode.com/
 .. _`Liquidweb DNS`: https://www.liquidweb.com
+.. _`NFSN DNS`: https://www.nearlyfreespeech.net
 .. _`Point DNS`: https://pointhq.com/
 .. _`Rackspace DNS`: http://www.rackspace.com/
 .. _`Rackspace DNS (UK)`: http://www.rackspace.com/

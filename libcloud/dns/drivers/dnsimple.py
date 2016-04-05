@@ -289,5 +289,6 @@ class DNSimpleDNSDriver(DNSDriver):
                  'created_at': record.get('created_at'),
                  'updated_at': record.get('updated_at'),
                  'domain_id': record.get('domain_id'),
-                 'prio': record.get('prio')}
-        return Record(id, name, type, data, zone, self, extra=extra)
+                 'priority': record.get('prio')}
+        return Record(id=id, name=name, type=type, data=data, zone=zone,
+                      driver=self, ttl=record.get('ttl', None), extra=extra)

@@ -35,7 +35,27 @@ __all__ = [
 ]
 
 
-class Provider(object):
+class Type(object):
+    @classmethod
+    def tostring(cls, value):
+        """Return the string representation of the state object attribute
+        :param str value: the state object to turn into string
+        :return: the uppercase string that represents the state object
+        :rtype: str
+        """
+        return value.upper()
+
+    @classmethod
+    def fromstring(cls, value):
+        """Return the state object attribute that matches the string
+        :param str value: the string to look up
+        :return: the state object attribute that matches the string
+        :rtype: str
+        """
+        return getattr(cls, value.upper(), None)
+
+
+class Provider(Type):
     """
     Defines for each of the supported providers
 
@@ -54,7 +74,6 @@ class Provider(object):
     :cvar ECP: Enomaly
     :cvar IBM: IBM Developer Cloud
     :cvar OPENNEBULA: OpenNebula.org
-    :cvar DREAMHOST: DreamHost Private Server
     :cvar ELASTICHOSTS: ElasticHosts.com
     :cvar CLOUDSIGMA: CloudSigma
     :cvar NIMBUS: Nimbus
@@ -81,6 +100,7 @@ class Provider(object):
     :cvar VULTR: vultr driver.
     :cvar AZURE: Azure driver.
     :cvar AURORACOMPUTE: Aurora Compute driver.
+    :cvar ALIYUN_ECS: Aliyun ECS driver.
     """
     AZURE = 'azure'
     DUMMY = 'dummy'
@@ -98,7 +118,6 @@ class Provider(object):
     ECP = 'ecp'
     IBM = 'ibm'
     OPENNEBULA = 'opennebula'
-    DREAMHOST = 'dreamhost'
     ELASTICHOSTS = 'elastichosts'
     BRIGHTBOX = 'brightbox'
     CLOUDSIGMA = 'cloudsigma'
@@ -135,6 +154,13 @@ class Provider(object):
     CLOUDWATT = 'cloudwatt'
     PACKET = 'packet'
     RUNABOVE = 'runabove'
+    INTERNETSOLUTIONS = 'internetsolutions'
+    INDOSAT = 'indosat'
+    BSNL = 'bsnl'
+    NTTA = 'ntta'
+    MEDONE = 'medone'
+    CISCOCCS = 'ciscoccs'
+    ALIYUN_ECS = 'aliyun_ecs'
 
     # OpenStack based providers
     HPCLOUD = 'hpcloud'
@@ -149,6 +175,8 @@ class Provider(object):
     EC2_US_WEST = 'ec2_us_west'
     EC2_AP_SOUTHEAST = 'ec2_ap_southeast'
     EC2_AP_NORTHEAST = 'ec2_ap_northeast'
+    EC2_AP_NORTHEAST1 = 'ec2_ap_northeast_1'
+    EC2_AP_NORTHEAST2 = 'ec2_ap_northeast_2'
     EC2_US_WEST_OREGON = 'ec2_us_west_oregon'
     EC2_SA_EAST = 'ec2_sa_east'
     EC2_AP_SOUTHEAST2 = 'ec2_ap_southeast_2'
@@ -191,60 +219,63 @@ OLD_CONSTANT_TO_NEW_MAPPING = {
 }
 
 
-class NodeState(object):
+class NodeState(Type):
     """
     Standard states for a node
 
     :cvar RUNNING: Node is running.
+    :cvar STARTING: Node is starting up.
     :cvar REBOOTING: Node is rebooting.
     :cvar TERMINATED: Node is terminated. This node can't be started later on.
+    :cvar STOPPING: Node is currently trying to stop.
     :cvar STOPPED: Node is stopped. This node can be started later on.
     :cvar PENDING: Node is pending.
-    :cvar STOPPED: Node is stopped.
     :cvar SUSPENDED: Node is suspended.
     :cvar ERROR: Node is an error state. Usually no operations can be performed
                  on the node once it ends up in the error state.
     :cvar PAUSED: Node is paused.
+    :cvar RECONFIGURING: Node is being reconfigured.
     :cvar UNKNOWN: Node state is unknown.
     """
-    RUNNING = 0
-    REBOOTING = 1
-    TERMINATED = 2
-    PENDING = 3
-    UNKNOWN = 4
-    STOPPED = 5
-    SUSPENDED = 6
-    ERROR = 7
-    PAUSED = 8
-
-    @classmethod
-    def tostring(cls, value):
-        values = cls.__dict__
-        values = dict([(key, string) for key, string in values.items() if
-                       not key.startswith('__')])
-
-        for item_key, item_value in values.items():
-            if value == item_value:
-                return item_key
-
-    @classmethod
-    def fromstring(cls, value):
-        return getattr(cls, value.upper(), None)
+    RUNNING = 'running'
+    STARTING = 'starting'
+    REBOOTING = 'rebooting'
+    TERMINATED = 'terminated'
+    PENDING = 'pending'
+    UNKNOWN = 'unknown'
+    STOPPING = 'stopping'
+    STOPPED = 'stopped'
+    SUSPENDED = 'suspended'
+    ERROR = 'error'
+    PAUSED = 'paused'
+    RECONFIGURING = 'reconfiguring'
 
 
-class StorageVolumeState(object):
+class StorageVolumeState(Type):
     """
     Standard states of a StorageVolume
     """
-    AVAILABLE = 0
-    ERROR = 1
-    INUSE = 2
-    CREATING = 3
-    DELETING = 4
-    DELETED = 5
-    BACKUP = 6
-    ATTACHING = 7
-    UNKNOWN = 8
+    AVAILABLE = 'available'
+    ERROR = 'error'
+    INUSE = 'inuse'
+    CREATING = 'creating'
+    DELETING = 'deleting'
+    DELETED = 'deleted'
+    BACKUP = 'backup'
+    ATTACHING = 'attaching'
+    UNKNOWN = 'unknown'
+
+
+class VolumeSnapshotState(Type):
+    """
+    Standard states of VolumeSnapshots
+    """
+    AVAILABLE = 'available'
+    ERROR = 'error'
+    CREATING = 'creating'
+    DELETING = 'deleting'
+    RESTORING = 'restoring'
+    UNKNOWN = 'unknown'
 
 
 class Architecture(object):

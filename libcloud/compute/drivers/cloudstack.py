@@ -28,7 +28,7 @@ from libcloud.compute.base import Node, NodeDriver, NodeImage, NodeLocation
 from libcloud.compute.base import NodeSize, StorageVolume, VolumeSnapshot
 from libcloud.compute.base import KeyPair
 from libcloud.compute.types import NodeState, LibcloudError
-from libcloud.compute.types import KeyPairDoesNotExistError
+from libcloud.compute.types import KeyPairDoesNotExistError, StorageVolumeState
 from libcloud.utils.networking import is_private_subnet
 
 
@@ -818,7 +818,7 @@ class CloudStackNetworkACL(object):
         :type       id ``int``
 
         :param      protocol: the protocol for the ACL rule. Valid values are
-                    TCP/UDP/ICMP/ALL or valid protocol number
+                               TCP/UDP/ICMP/ALL or valid protocol number
         :type       protocol: ``string``
 
         :param      acl_id: Name of the network ACL List
@@ -837,7 +837,8 @@ class CloudStackNetworkACL(object):
         :type       end_port: ``str``
 
         :param      traffic_type: the traffic type for the ACL,can be Ingress
-                    or Egress, defaulted to Ingress if not specified
+                                  or Egress, defaulted to Ingress if not
+                                  specified
         :type       traffic_type: ``str``
 
         :rtype: :class:`CloudStackNetworkACL`
@@ -1241,6 +1242,18 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         'Error': NodeState.TERMINATED
     }
 
+    VOLUME_STATE_MAP = {
+        'Creating': StorageVolumeState.CREATING,
+        'Destroying': StorageVolumeState.DELETING,
+        'Expunging': StorageVolumeState.DELETING,
+        'Destroy': StorageVolumeState.DELETED,
+        'Expunged': StorageVolumeState.DELETED,
+        'Allocated': StorageVolumeState.AVAILABLE,
+        'Ready': StorageVolumeState.AVAILABLE,
+        'Snapshotting': StorageVolumeState.BACKUP,
+        'UploadError': StorageVolumeState.ERROR
+    }
+
     def __init__(self, key, secret=None, secure=True, host=None,
                  path=None, port=None, url=None, *args, **kwargs):
         """
@@ -1351,6 +1364,8 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
             args['projectid'] = project.id
         vms = self._sync_request('listVirtualMachines', params=args)
         addrs = self._sync_request('listPublicIpAddresses', params=args)
+        port_forwarding_rules = self._sync_request('listPortForwardingRules')
+        ip_forwarding_rules = self._sync_request('listIpForwardingRules')
 
         public_ips_map = {}
         for addr in addrs.get('publicipaddress', []):
@@ -1368,14 +1383,15 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
             public_ips = list(public_ips)
             node = self._to_node(data=vm, public_ips=public_ips)
 
-            addresses = public_ips_map.get(vm['id'], {}).items()
-            addresses = [CloudStackAddress(node, v, k) for k, v in addresses]
+            addresses = public_ips_map.get(str(vm['id']), {}).items()
+            addresses = [CloudStackAddress(id=address_id, address=address,
+                                           driver=node.driver) for
+                         address, address_id in addresses]
             node.extra['ip_addresses'] = addresses
 
             rules = []
             for addr in addresses:
-                result = self._sync_request('listIpForwardingRules')
-                for r in result.get('ipforwardingrule', []):
+                for r in ip_forwarding_rules.get('ipforwardingrule', []):
                     if str(r['virtualmachineid']) == node.id:
                         rule = CloudStackIPForwardingRule(node, r['id'],
                                                           addr,
@@ -1387,12 +1403,13 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
             node.extra['ip_forwarding_rules'] = rules
 
             rules = []
-            public_ips = self.ex_list_public_ips()
-            result = self._sync_request('listPortForwardingRules')
-            for r in result.get('portforwardingrule', []):
+            for r in port_forwarding_rules.get('portforwardingrule', []):
                 if str(r['virtualmachineid']) == node.id:
-                    addr = [a for a in public_ips if
-                            a.address == r['ipaddress']]
+                    addr = [CloudStackAddress(id=a['id'],
+                                              address=a['ipaddress'],
+                                              driver=node.driver)
+                            for a in addrs.get('publicipaddress', [])
+                            if a['ipaddress'] == r['ipaddress']]
                     rule = CloudStackPortForwardingRule(node, r['id'],
                                                         addr[0],
                                                         r['protocol'].upper(),
@@ -1442,8 +1459,9 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
 
         node = self._to_node(data=vm, public_ips=list(public_ips.keys()))
 
-        addresses = public_ips.items()
-        addresses = [CloudStackAddress(node, v, k) for k, v in addresses]
+        addresses = [CloudStackAddress(id=address_id, address=address,
+                                       driver=node.driver) for
+                     address, address_id in public_ips.items()]
         node.extra['ip_addresses'] = addresses
 
         rules = []
@@ -2112,9 +2130,12 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
 
         volumeResponse = requestResult['volume']
 
+        state = self._to_volume_state(volumeResponse)
+
         return StorageVolume(id=volumeResponse['id'],
                              name=name,
                              size=size,
+                             state=state,
                              driver=self,
                              extra=dict(name=volumeResponse['name']))
 
@@ -2168,16 +2189,20 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                                          method='GET')
 
         list_volumes = []
+
         extra_map = RESOURCE_EXTRA_ATTRIBUTES_MAP['volume']
-        for vol in volumes['volume']:
+        for vol in volumes.get('volume', []):
             extra = self._get_extra_dict(vol, extra_map)
 
             if 'tags' in vol:
                 extra['tags'] = self._get_resource_tags(vol['tags'])
 
+            state = self._to_volume_state(vol)
+
             list_volumes.append(StorageVolume(id=vol['id'],
                                               name=vol['name'],
                                               size=vol['size'],
+                                              state=state,
                                               driver=self,
                                               extra=extra))
         return list_volumes
@@ -2209,7 +2234,9 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         if 'tags' in vol:
             extra['tags'] = self._get_resource_tags(vol['tags'])
 
-        volume = StorageVolume(id=vol['id'], name=vol['name'],
+        state = self._to_volume_state(vol)
+
+        volume = StorageVolume(id=vol['id'], name=vol['name'], state=state,
                                size=vol['size'], driver=self, extra=extra)
         return volume
 
@@ -2481,7 +2508,7 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                                 icmp_code=None, icmp_type=None,
                                 start_port=None, end_port=None):
         """
-        Creates a Firewalle Rule
+        Creates a Firewall Rule
 
         :param      address: External IP address
         :type       address: :class:`CloudStackAddress`
@@ -2534,7 +2561,7 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
 
     def ex_delete_firewall_rule(self, firewall_rule):
         """
-        Remove a Firewall rule.
+        Remove a Firewall Rule.
 
         :param firewall_rule: Firewall rule which should be used
         :type  firewall_rule: :class:`CloudStackFirewallRule`
@@ -2548,7 +2575,7 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
 
     def ex_list_egress_firewall_rules(self):
         """
-        Lists all agress Firewall Rules
+        Lists all egress Firewall Rules
 
         :rtype: ``list`` of :class:`CloudStackEgressFirewallRule`
         """
@@ -2571,9 +2598,9 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                                        icmp_code=None, icmp_type=None,
                                        start_port=None, end_port=None):
         """
-        Creates a Firewalle Rule
+        Creates a Firewall Rule
 
-        :param      network_id: the id network network for the egress firwall
+        :param      network_id: the id network network for the egress firewall
                     services
         :type       network_id: ``str``
 
@@ -2683,7 +2710,7 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                             Default value is false
         :type      list_all: ``bool``
 
-        :param     network_id: list port forwarding rules for ceratin network
+        :param     network_id: list port forwarding rules for certain network
         :type      network_id: ``string``
 
         :param     page: The page to list the keypairs from
@@ -4631,7 +4658,8 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
             extra['tags'] = self._get_resource_tags(data['tags'])
 
         node = CloudStackNode(id=id, name=name, state=state,
-                              public_ips=public_ips, private_ips=private_ips,
+                              public_ips=list(set(public_ips)),
+                              private_ips=private_ips,
                               driver=self, extra=extra)
         return node
 
@@ -4704,3 +4732,14 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                 extra[attribute] = None
 
         return extra
+
+    def _to_volume_state(self, vol):
+        state = self.VOLUME_STATE_MAP.get(vol['state'],
+                                          StorageVolumeState.UNKNOWN)
+
+        # If a volume is 'Ready' and is attached to a virtualmachine, set
+        # the status to INUSE
+        if state == StorageVolumeState.AVAILABLE and 'virtualmachineid' in vol:
+            state = StorageVolumeState.INUSE
+
+        return state

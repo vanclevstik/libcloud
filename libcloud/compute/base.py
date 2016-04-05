@@ -167,7 +167,7 @@ class Node(UuidMixin):
     """
 
     def __init__(self, id, name, state, public_ips, private_ips,
-                 driver, size=None, image=None, extra=None):
+                 driver, size=None, image=None, extra=None, created_at=None):
         """
         :param id: Node ID.
         :type id: ``str``
@@ -193,6 +193,9 @@ class Node(UuidMixin):
         :param image: Image of this node. (optional)
         :type size: :class:`.NodeImage`
 
+        :param created_at: The datetime this node was created (optional)
+        :type created_at: :class: `datetime.datetime`
+
         :param extra: Optional provider specific attributes associated with
                       this node.
         :type extra: ``dict``
@@ -205,6 +208,7 @@ class Node(UuidMixin):
         self.private_ips = private_ips if private_ips else []
         self.driver = driver
         self.size = size
+        self.created_at = created_at
         self.image = image
         self.extra = extra or {}
         UuidMixin.__init__(self)
@@ -554,7 +558,8 @@ class VolumeSnapshot(object):
     """
     A base VolumeSnapshot class to derive from.
     """
-    def __init__(self, id, driver, size=None, extra=None, created=None):
+    def __init__(self, id, driver, size=None, extra=None, created=None,
+                 state=None):
         """
         VolumeSnapshot constructor.
 
@@ -574,12 +579,17 @@ class VolumeSnapshot(object):
         :param      created: A datetime object that represents when the
                              snapshot was created
         :type       created: ``datetime.datetime``
+
+        :param      state: A string representing the state the snapshot is
+                           in. See `libcloud.compute.types.StorageVolumeState`.
+        :type       state: ``str``
         """
         self.id = id
         self.driver = driver
         self.size = size
         self.extra = extra or {}
         self.created = created
+        self.state = state
 
     def destroy(self):
         """
@@ -590,8 +600,8 @@ class VolumeSnapshot(object):
         return self.driver.destroy_volume_snapshot(snapshot=self)
 
     def __repr__(self):
-        return ('<VolumeSnapshot id=%s size=%s driver=%s>' %
-                (self.id, self.size, self.driver.name))
+        return ('<VolumeSnapshot id=%s size=%s driver=%s state=%s>' %
+                (self.id, self.size, self.driver.name, self.state))
 
 
 class KeyPair(object):
@@ -661,12 +671,6 @@ class NodeDriver(BaseDriver):
     """
 
     NODE_STATE_MAP = {}
-
-    def __init__(self, key, secret=None, secure=True, host=None, port=None,
-                 api_version=None, **kwargs):
-        super(NodeDriver, self).__init__(key=key, secret=secret, secure=secure,
-                                         host=host, port=port,
-                                         api_version=api_version, **kwargs)
 
     def list_nodes(self):
         """

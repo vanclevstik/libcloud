@@ -4,13 +4,17 @@
 Provider              Documentation                             Provider constant Module                                   Class Name                    
 ===================== ========================================= ================= ======================================== ==============================
 `AuroraDNS`_          :doc:`Click </dns/drivers/auroradns>`     AURORADNS         :mod:`libcloud.dns.drivers.auroradns`    :class:`AuroraDNSDriver`      
+`CloudFlare DNS`_     :doc:`Click </dns/drivers/cloudflare>`    CLOUDFLARE        :mod:`libcloud.dns.drivers.cloudflare`   :class:`CloudFlareDNSDriver`  
 `DigitalOcean`_       :doc:`Click </dns/drivers/digital_ocean>` DIGITAL_OCEAN     :mod:`libcloud.dns.drivers.digitalocean` :class:`DigitalOceanDNSDriver`
 `DNSimple`_           :doc:`Click </dns/drivers/dnsimple>`      DNSIMPLE          :mod:`libcloud.dns.drivers.dnsimple`     :class:`DNSimpleDNSDriver`    
+`DurableDNS`_         :doc:`Click </dns/drivers/durabledns>`    DURABLEDNS        :mod:`libcloud.dns.drivers.durabledns`   :class:`DurableDNSDriver`     
 `Gandi DNS`_                                                    GANDI             :mod:`libcloud.dns.drivers.gandi`        :class:`GandiDNSDriver`       
+`GoDaddy DNS`_        :doc:`Click </dns/drivers/godaddy>`       GODADDY           :mod:`libcloud.dns.drivers.godaddy`      :class:`GoDaddyDNSDriver`     
 `Google DNS`_                                                   GOOGLE            :mod:`libcloud.dns.drivers.google`       :class:`GoogleDNSDriver`      
 `Host Virtual DNS`_   :doc:`Click </dns/drivers/hostvirtual>`   HOSTVIRTUAL       :mod:`libcloud.dns.drivers.hostvirtual`  :class:`HostVirtualDNSDriver` 
 `Linode DNS`_                                                   LINODE            :mod:`libcloud.dns.drivers.linode`       :class:`LinodeDNSDriver`      
 `Liquidweb DNS`_      :doc:`Click </dns/drivers/liquidweb>`     LIQUIDWEB         :mod:`libcloud.dns.drivers.liquidweb`    :class:`LiquidWebDNSDriver`   
+`NFSN DNS`_           :doc:`Click </dns/drivers/nfsn>`          NFSN              :mod:`libcloud.dns.drivers.nfsn`         :class:`NFSNDNSDriver`        
 `Point DNS`_          :doc:`Click </dns/drivers/pointdns>`      POINTDNS          :mod:`libcloud.dns.drivers.pointdns`     :class:`PointDNSDriver`       
 `Rackspace DNS`_                                                RACKSPACE         :mod:`libcloud.dns.drivers.rackspace`    :class:`RackspaceDNSDriver`   
 `Rackspace DNS (UK)`_                                           RACKSPACE_UK      :mod:`libcloud.dns.drivers.rackspace`    :class:`RackspaceUKDNSDriver` 
@@ -24,13 +28,17 @@ Provider              Documentation                             Provider constan
 ===================== ========================================= ================= ======================================== ==============================
 
 .. _`AuroraDNS`: https://www.pcextreme.nl/en/aurora/dns
+.. _`CloudFlare DNS`: https://www.cloudflare.com
 .. _`DigitalOcean`: https://www.digitalocean.com
 .. _`DNSimple`: https://dnsimple.com/
+.. _`DurableDNS`: https://durabledns.com
 .. _`Gandi DNS`: http://www.gandi.net/domain
+.. _`GoDaddy DNS`: https://www.godaddy.com/
 .. _`Google DNS`: https://cloud.google.com/
 .. _`Host Virtual DNS`: https://www.hostvirtual.com/
 .. _`Linode DNS`: http://www.linode.com/
 .. _`Liquidweb DNS`: https://www.liquidweb.com
+.. _`NFSN DNS`: https://www.nearlyfreespeech.net
 .. _`Point DNS`: https://pointhq.com/
 .. _`Rackspace DNS`: http://www.rackspace.com/
 .. _`Rackspace DNS (UK)`: http://www.rackspace.com/

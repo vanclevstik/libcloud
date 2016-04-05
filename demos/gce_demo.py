@@ -362,11 +362,21 @@ def main_compute():
                                  ex_disk_auto_delete=False)
         display('  Node %s created' % name)
 
+        # Stop the node and change to a custom machine type (e.g. size)
+        display('Stopping node, setting custom size, starting node:')
+        name = '%s-np-node' % DEMO_BASE_NAME
+        gce.ex_stop_node(node_1)
+        gce.ex_set_machine_type(node_1, 'custom-2-4096')   # 2 vCPU, 4GB RAM
+        gce.ex_start_node(node_1)
+        node_1 = gce.ex_get_node(name)
+        display('  %s: state=%s, size=%s' % (name, node_1.extra['status'],
+                                             node_1.size))
+
         # == Create, and attach a disk ==
         display('Creating a new disk:')
         disk_name = '%s-attach-disk' % DEMO_BASE_NAME
         volume = gce.create_volume(10, disk_name)
-        if volume.attach(node_1):
+        if gce.attach_volume(node_1, volume, ex_auto_delete=True):
             display('  Attached %s to %s' % (volume.name, node_1.name))
         display('  Disabled auto-delete for %s on %s' % (volume.name,
                                                          node_1.name))

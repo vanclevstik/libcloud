@@ -57,15 +57,20 @@ DRIVERS = {
     ('libcloud.dns.drivers.leaseweb', 'LeaseWebDNSDriver'),
     Provider.CLOUDNS:
     ('libcloud.dns.drivers.cloudns', 'ClouDNSDNSDriver'),
-
+    Provider.AURORADNS:
+    ('libcloud.dns.drivers.auroradns', 'AuroraDNSDriver'),
+    Provider.GODADDY:
+    ('libcloud.dns.drivers.godaddy', 'GoDaddyDNSDriver'),
+    Provider.CLOUDFLARE:
+    ('libcloud.dns.drivers.cloudflare', 'CloudFlareDNSDriver'),
+    Provider.NFSN:
+    ('libcloud.dns.drivers.nfsn', 'NFSNDNSDriver'),
 
     # Deprecated
     Provider.RACKSPACE_US:
     ('libcloud.dns.drivers.rackspace', 'RackspaceUSDNSDriver'),
     Provider.RACKSPACE_UK:
-    ('libcloud.dns.drivers.rackspace', 'RackspaceUKDNSDriver'),
-    Provider.AURORADNS:
-    ('libcloud.dns.drivers.auroradns', 'AuroraDNSDriver')
+    ('libcloud.dns.drivers.rackspace', 'RackspaceUKDNSDriver')
 }
 
 

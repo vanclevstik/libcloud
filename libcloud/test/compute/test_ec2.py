@@ -39,7 +39,8 @@ from libcloud.compute.drivers.ec2 import ExEC2AvailabilityZone
 from libcloud.compute.drivers.ec2 import EC2NetworkSubnet
 from libcloud.compute.base import Node, NodeImage, NodeSize, NodeLocation
 from libcloud.compute.base import StorageVolume, VolumeSnapshot
-from libcloud.compute.types import KeyPairDoesNotExistError, StorageVolumeState
+from libcloud.compute.types import KeyPairDoesNotExistError, StorageVolumeState, \
+    VolumeSnapshotState
 
 from libcloud.test import MockHttpTestCase, LibcloudTestCase
 from libcloud.test.compute import TestCaseMixin
@@ -216,8 +217,10 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual(node.id, 'i-4382922a')
         self.assertEqual(node.name, node.id)
         self.assertEqual(len(node.public_ips), 2)
-        self.assertEqual(node.extra['launch_time'],
-                         '2013-12-02T11:58:11.000Z')
+
+        self.assertEqual(node.extra['launch_time'], '2013-12-02T11:58:11.000Z')
+        self.assertEqual(node.created_at, datetime(2013, 12, 2, 11, 58, 11, tzinfo=UTC))
+
         self.assertTrue('instance_type' in node.extra)
         self.assertEqual(node.extra['availability'], 'us-east-1d')
         self.assertEqual(node.extra['key_name'], 'fauxkey')
@@ -242,12 +245,14 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual(ret_node2.extra['subnet_id'], 'subnet-5fd9d412')
         self.assertEqual(ret_node2.extra['vpc_id'], 'vpc-61dcd30e')
         self.assertEqual(ret_node2.extra['tags']['Group'], 'VPC Test')
-        self.assertEqual(ret_node1.extra['launch_time'],
-                         '2013-12-02T11:58:11.000Z')
-        self.assertTrue('instance_type' in ret_node1.extra)
-        self.assertEqual(ret_node2.extra['launch_time'],
-                         '2013-12-02T15:58:29.000Z')
-        self.assertTrue('instance_type' in ret_node2.extra)
+
+        self.assertEqual(ret_node1.extra['launch_time'], '2013-12-02T11:58:11.000Z')
+        self.assertEqual(ret_node1.created_at, datetime(2013, 12, 2, 11, 58, 11, tzinfo=UTC))
+        self.assertEqual(ret_node2.extra['launch_time'], '2013-12-02T15:58:29.000Z')
+        self.assertEqual(ret_node2.created_at, datetime(2013, 12, 2, 15, 58, 29, tzinfo=UTC))
+
+        self.assertIn('instance_type', ret_node1.extra)
+        self.assertIn('instance_type', ret_node2.extra)
 
     def test_ex_list_reserved_nodes(self):
         node = self.driver.ex_list_reserved_nodes()[0]
@@ -414,20 +419,20 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
             self.assertTrue('m2.4xlarge' in ids)
 
             if region_name == 'us-east-1':
-                self.assertEqual(len(sizes), 40)
+                self.assertEqual(len(sizes), 53)
                 self.assertTrue('cg1.4xlarge' in ids)
                 self.assertTrue('cc2.8xlarge' in ids)
                 self.assertTrue('cr1.8xlarge' in ids)
             elif region_name == 'us-west-1':
-                self.assertEqual(len(sizes), 32)
+                self.assertEqual(len(sizes), 45)
             if region_name == 'us-west-2':
-                self.assertEqual(len(sizes), 29)
+                self.assertEqual(len(sizes), 41)
             elif region_name == 'ap-southeast-1':
-                self.assertEqual(len(sizes), 31)
+                self.assertEqual(len(sizes), 43)
             elif region_name == 'ap-southeast-2':
-                self.assertEqual(len(sizes), 36)
+                self.assertEqual(len(sizes), 47)
             elif region_name == 'eu-west-1':
-                self.assertEqual(len(sizes), 38)
+                self.assertEqual(len(sizes), 51)
 
         self.driver.region_name = region_old
 
@@ -866,6 +871,7 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual('Test snapshot', snap.extra['name'])
         self.assertEqual(vol.id, snap.extra['volume_id'])
         self.assertEqual('pending', snap.extra['state'])
+        self.assertEqual(VolumeSnapshotState.CREATING, snap.state)
         # 2013-08-15T16:22:30.000Z
         self.assertEqual(datetime(2013, 8, 15, 16, 22, 30, tzinfo=UTC), snap.created)
 
@@ -875,11 +881,13 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual(len(snaps), 3)
 
         self.assertEqual('snap-428abd35', snaps[0].id)
+        self.assertEqual(VolumeSnapshotState.CREATING, snaps[0].state)
         self.assertEqual('vol-e020df80', snaps[0].extra['volume_id'])
         self.assertEqual(30, snaps[0].size)
         self.assertEqual('Daily Backup', snaps[0].extra['description'])
 
         self.assertEqual('snap-18349159', snaps[1].id)
+        self.assertEqual(VolumeSnapshotState.AVAILABLE, snaps[1].state)
         self.assertEqual('vol-b5a2c1v9', snaps[1].extra['volume_id'])
         self.assertEqual(15, snaps[1].size)
         self.assertEqual('Weekly backup', snaps[1].extra['description'])

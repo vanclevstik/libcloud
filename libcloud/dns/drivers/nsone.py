@@ -102,7 +102,7 @@ class NsOneDNSDriver(DNSDriver):
             else:
                 raise e
 
-        zone = self._to_zone(response.objects[0])
+        zone = self._to_zone(response.object)
 
         return zone
 
@@ -198,7 +198,7 @@ class NsOneDNSDriver(DNSDriver):
 
         return response.status == httplib.OK
 
-    def create_record(self, name, zone, type, data, extra=None):
+    def create_record(self, name, zone, type_, data, extra=None):
         """
         :param name: Name of the record to create (e.g. foo).
         :type name: ``str``
@@ -212,17 +212,17 @@ class NsOneDNSDriver(DNSDriver):
         :type extra: ``dict``
         :return: :class:`Record`
         """
-        action = '/v1/zones/%s/%s/%s' % (zone.domain, '%s.%s' %
-                                         (name, zone.domain), type)
+        record_name = '%s.%s' % (name, zone.domain) if name != '' else zone.domain
+
+        action = '/v1/zones/%s/%s/%s' % (zone.domain, record_name, type_)
+        if type_ == RecordType.MX:
+            answer = [extra.get('priority', 10), data]
+        else:
+            answer = [data]
         raw_data = {
-            "answers": [
-                {
-                    "answer": [
-                        data
-                    ], }
-            ],
-            "type": type,
-            "domain": '%s.%s' % (name, zone.domain),
+            "answers": [{"answer": answer}],
+            "type": type_,
+            "domain": record_name,
             "zone": zone.domain
         }
         if extra is not None and extra.get('answers'):

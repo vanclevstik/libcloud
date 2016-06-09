@@ -1,8 +1,121 @@
 ﻿Changelog
 =========
 
-Changes with Apache Libcloud in development
--------------------------------------------
+Changes with latest version of Apache Libcloud
+----------------------------------------------
+
+General
+~~~~~~~
+
+- Fix a regression with ``timeout`` argument provided via
+  ``_ex_connection_class_kwargs`` method being overriden with ``None`` inside
+  the ``BaseDriver`` constructor method.
+
+  Reported by Jay Rolette.
+  (GITHUB-755)
+  [Tomaz Muraus, Jay Rolette]
+
+- Fix OpenStack v3 authentication and allow user to provide a custom value for
+  the OpenStack ``domain`` parameter. Previously only possible value as a
+  default value of ``Default``.
+  (GITHUB-744)
+  [Lionel Schaub]
+
+- Add support for authenticating against Keystone and OpenStack based clouds
+  using OpenID Connect tokens.
+  (GITHUB-789)
+  [Miguel Caballer]
+
+Compute
+~~~~~~~
+
+- GCE nodes can be launched in a subnetwork
+  (GITHUB-783)
+  [Lars Larsson]
+
+- Add Subnetworks to GCE driver
+  (GITHUB-780)
+  [Eric Johnson]
+
+- Fix missing pricing data for GCE
+  (LIBCLOUD-713, GITHUB-779)
+  [Eric Johnson]
+
+- Add Image Family support for GCE
+  (GITHUB-778)
+  [Rick Wright]
+
+- Fix a race condition on GCE driver `list_nodes()`- Invoking GCE’s
+  `list_nodes()` while some VMs are being shutdown can result in the following
+  `libcloud.common.google.ResourceNotFoundError` exception to be raised.
+  (GITHUB-727)
+  [Lénaïc Huard]
+
+- Allow user to filter nodes by location by adding optional `location`
+  argument to the `list_nodes()` method in the CloudStack driver.
+  (GITHUB-737)
+  [Lionel Schaub]
+
+- Fix OpenStack IP type resolution - make sure IP addresses are correctly
+  categorized and assigned on `private_ips` and `public_ips` Node attribute.
+  (GITHUB-738)
+  [Lionel Schaub]
+
+- Add new `Perth, Australia` and `Manila, Philippines` region to the CloudSigma
+  v2 driver.
+  [Tomaz Muraus]
+
+- Update libvirt driver so it returns false if a non-local libvirt URL is used
+  (right now only local instances are supported).
+  (LIBCLOUD-820, GITHUB-788)
+  [René Kjellerup]
+
+- Update libvirt driver to use `ip neight` command instead of `arp` to retrieve
+  node MAC address if `arp` command is not available or the current user
+  doesn't have permission to use it.
+  (LIBCLOUD-820, GITHUB-788)
+  [René Kjellerup]
+
+- Update ``create_volume`` method in the CloudStack driver and add
+  ``ex_volume_type`` argument to it. If this argument is provided, a volume
+  which names matches this argument value will be searched and selected among
+  the available disk offerings.
+  (GITHUB-785)
+  [Greg Bishop]
+
+Storage
+~~~~~~~
+
+- Add support for AWS signature v4 to the Outscale storage driver.
+  (GITHUB-736)
+  [Javier M. Mellid]
+
+
+- Add new S3 RGW storage driver.
+  (GITHUB-786, GITHUB-792)
+  [Javier M. Mellid]
+
+Loadbalancer
+~~~~~~~~~~~~
+
+- Update AWS ELB driver to use signature version 4 for authentication. This
+  way, the driver also work with the `eu-central-1` region.
+  (GITHUB-796)
+  [Tobias Paepke]
+
+DNS
+~~~
+
+- Add BuddyNS driver.
+  (GITHUB-742)
+  [Oltjano Terpollari]
+
+- Added DNSPod driver (https://www.dnspod.com).
+  (GITHUB-787)
+  [Oltjano Terpollari]
+
+Changes with Apache Libcloud in 1.0.0-rc2
+-----------------------------------------
 
 General
 ~~~~~~~
@@ -28,6 +141,19 @@ General
 - Throw a more user-friendly exception on "No address associated with hostname".
   (GITHUB-711, GITHUB-714, LIBCLOUD-803)
   [Tomaz Muraus, Scott Crunkleton]
+
+* Remove deprecated provider constants with the region in the name and related
+  driver classes (e.g. ``EC2_US_EAST``, etc.).
+
+  Those drivers have moved to single provider constant + ``region`` constructor
+  argument model.
+  [Tomaz Muraus]
+
+* Introduce new `list_regions`` class method on the base driver class. This
+  method is to be used with provider drivers which support multiple regions and
+  ``region`` constructor argument. It allows users to enumerate available /
+  supported regions.
+  [Tomaz Muraus]
 
 Compute
 ~~~~~~~

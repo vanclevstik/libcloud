@@ -4,9 +4,7 @@ sudo: false
 os:
   - linux
 env:
-  - TOX_ENV=lint
-  - TOX_ENV=py27
-  - TOX_ENV=docs
+  - TOX_ENV=py2.7
 
 matrix:
   fast_finish: true

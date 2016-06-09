@@ -640,6 +640,16 @@ INSTANCE_TYPES = {
         'extra': {
             'cpu': 2
         }
+    },
+    'x1.32xlarge': {
+        'id': 'x1.32xlarge',
+        'name': 'Memory Optimized ThirtyTwo Extra Large instance',
+        'ram': GiB(1952),
+        'disk': 2 * 1920,  # GB
+        'bandwidth': None,
+        'extra': {
+            'cpu': 128
+        }
     }
 }
 
@@ -704,7 +714,8 @@ REGION_DETAILS = {
             't2.micro',
             't2.small',
             't2.medium',
-            't2.large'
+            't2.large',
+            'x1.32xlarge'
         ]
     },
     # US West (Northern California) Region
@@ -818,7 +829,8 @@ REGION_DETAILS = {
             't2.micro',
             't2.small',
             't2.medium',
-            't2.large'
+            't2.large',
+            'x1.32xlarge'
         ]
     },
     # EU (Ireland) Region
@@ -878,7 +890,8 @@ REGION_DETAILS = {
             't2.micro',
             't2.small',
             't2.medium',
-            't2.large'
+            't2.large',
+            'x1.32xlarge'
         ]
     },
     # EU (Frankfurt) Region
@@ -923,7 +936,8 @@ REGION_DETAILS = {
             't2.micro',
             't2.small',
             't2.medium',
-            't2.large'
+            't2.large',
+            'x1.32xlarge'
         ]
     },
     # Asia Pacific (Singapore) Region
@@ -975,7 +989,8 @@ REGION_DETAILS = {
             't2.micro',
             't2.small',
             't2.medium',
-            't2.large'
+            't2.large',
+            'x1.32xlarge'
         ]
     },
     # Asia Pacific (Tokyo) Region
@@ -1034,7 +1049,8 @@ REGION_DETAILS = {
             't2.micro',
             't2.small',
             't2.medium',
-            't2.large'
+            't2.large',
+            'x1.32xlarge'
         ]
     },
     # Asia Pacific (Seoul) Region
@@ -1071,7 +1087,8 @@ REGION_DETAILS = {
             't2.micro',
             't2.small',
             't2.medium',
-            't2.large'
+            't2.large',
+            'x1.32xlarge'
         ]
     },
     # South America (Sao Paulo) Region
@@ -1155,7 +1172,8 @@ REGION_DETAILS = {
             't2.micro',
             't2.small',
             't2.medium',
-            't2.large'
+            't2.large',
+            'x1.32xlarge'
         ]
     },
     'us-gov-west-1': {
@@ -6321,7 +6339,8 @@ class EC2NodeDriver(BaseEC2NodeDriver):
         if hasattr(self, '_region'):
             region = self._region
 
-        if region not in VALID_EC2_REGIONS:
+        valid_regions = self.list_regions()
+        if region not in valid_regions:
             raise ValueError('Invalid region: %s' % (region))
 
         details = REGION_DETAILS[region]
@@ -6337,6 +6356,10 @@ class EC2NodeDriver(BaseEC2NodeDriver):
                                             secure=secure, host=host,
                                             port=port, **kwargs)
 
+    @classmethod
+    def list_regions(cls):
+        return VALID_EC2_REGIONS
+
 
 class IdempotentParamError(LibcloudError):
     """
@@ -6346,73 +6369,6 @@ class IdempotentParamError(LibcloudError):
 
     def __str__(self):
         return repr(self.value)
-
-
-class EC2EUNodeDriver(EC2NodeDriver):
-    """
-    Driver class for EC2 in the Western Europe Region.
-    """
-    name = 'Amazon EC2 (eu-west-1)'
-    _region = 'eu-west-1'
-
-
-class EC2USWestNodeDriver(EC2NodeDriver):
-    """
-    Driver class for EC2 in the Western US Region
-    """
-    name = 'Amazon EC2 (us-west-1)'
-    _region = 'us-west-1'
-
-
-class EC2USWestOregonNodeDriver(EC2NodeDriver):
-    """
-    Driver class for EC2 in the US West Oregon region.
-    """
-    name = 'Amazon EC2 (us-west-2)'
-    _region = 'us-west-2'
-
-
-class EC2APSENodeDriver(EC2NodeDriver):
-    """
-    Driver class for EC2 in the Southeast Asia Pacific Region.
-    """
-    name = 'Amazon EC2 (ap-southeast-1)'
-    _region = 'ap-southeast-1'
-
-
-class EC2APNE1NodeDriver(EC2NodeDriver):
-    """
-    Driver class for EC2 in the Northeast Asia Pacific 1(Tokyo) Region.
-    """
-    name = 'Amazon EC2 (ap-northeast-1)'
-    _region = 'ap-northeast-1'
-
-
-EC2APNENodeDriver = EC2APNE1NodeDriver  # fallback
-
-
-class EC2APNE2NodeDriver(EC2NodeDriver):
-    """
-    Driver class for EC2 in the Northeast Asia Pacific 2(Seoul) Region.
-    """
-    name = 'Amazon EC2 (ap-northeast-2)'
-    _region = 'ap-northeast-2'
-
-
-class EC2SAEastNodeDriver(EC2NodeDriver):
-    """
-    Driver class for EC2 in the South America (Sao Paulo) Region.
-    """
-    name = 'Amazon EC2 (sa-east-1)'
-    _region = 'sa-east-1'
-
-
-class EC2APSESydneyNodeDriver(EC2NodeDriver):
-    """
-    Driver class for EC2 in the Southeast Asia Pacific (Sydney) Region.
-    """
-    name = 'Amazon EC2 (ap-southeast-2)'
-    _region = 'ap-southeast-2'
 
 
 class EucConnection(EC2Connection):

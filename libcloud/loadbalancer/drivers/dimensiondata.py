@@ -75,10 +75,11 @@ class DimensionDataLBDriver(Driver):
     def __init__(self, key, secret=None, secure=True, host=None, port=None,
                  api_version=None, region=DEFAULT_REGION, **kwargs):
 
-        if region not in API_ENDPOINTS:
-            raise ValueError('Invalid region: %s' % (region))
-
-        self.selected_region = API_ENDPOINTS[region]
+        if region not in API_ENDPOINTS and host is None:
+            raise ValueError(
+                'Invalid region: %s, no host specified' % (region))
+        if region is not None:
+            self.selected_region = API_ENDPOINTS[region]
 
         super(DimensionDataLBDriver, self).__init__(key=key, secret=secret,
                                                     secure=secure, host=host,
@@ -204,7 +205,7 @@ class DimensionDataLBDriver(Driver):
 
         :rtype: ``list`` of ``str``
         """
-        return ['http', 'https', 'tcp', 'udp']
+        return ['http', 'https', 'tcp', 'udp', 'ftp', 'smtp']
 
     def balancer_list_members(self, balancer):
         """
@@ -619,7 +620,6 @@ class DimensionDataLBDriver(Driver):
         """
         if port is 80 or 443:
             listener_type = 'PERFORMANCE_LAYER_4'
-            protocol = 'HTTP'
         else:
             listener_type = 'STANDARD'
 

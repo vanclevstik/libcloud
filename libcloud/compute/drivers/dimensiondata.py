@@ -39,10 +39,12 @@ from libcloud.common.dimensiondata import DimensionDataFirewallAddress
 from libcloud.common.dimensiondata import DimensionDataNatRule
 from libcloud.common.dimensiondata import DimensionDataAntiAffinityRule
 from libcloud.common.dimensiondata import NetworkDomainServicePlan
+from libcloud.common.dimensiondata import DimensionDataTagKey
+from libcloud.common.dimensiondata import DimensionDataTag
 from libcloud.common.dimensiondata import API_ENDPOINTS, DEFAULT_REGION
 from libcloud.common.dimensiondata import TYPES_URN
 from libcloud.common.dimensiondata import SERVER_NS, NETWORK_NS, GENERAL_NS
-from libcloud.utils.py3 import urlencode
+from libcloud.utils.py3 import urlencode, ensure_string
 from libcloud.utils.xml import fixxpath, findtext, findall
 from libcloud.utils.py3 import basestring
 from libcloud.compute.types import NodeState, Provider
@@ -73,6 +75,14 @@ NODE_STATE_MAP = {
         NodeState.RECONFIGURING,
 }
 
+OBJECT_TO_TAGGING_ASSET_TYPE_MAP = {
+    'Node': 'SERVER',
+    'NodeImage': 'CUSTOMER_IMAGE',
+    'DimensionDataNetworkDomain': 'NETWORK_DOMAIN',
+    'DimensionDataVlan': 'VLAN',
+    'DimensionDataPublicIpBlock': 'PUBLIC_IP_BLOCK'
+}
+
 
 class DimensionDataNodeDriver(NodeDriver):
     """
@@ -90,10 +100,11 @@ class DimensionDataNodeDriver(NodeDriver):
     def __init__(self, key, secret=None, secure=True, host=None, port=None,
                  api_version=None, region=DEFAULT_REGION, **kwargs):
 
-        if region not in API_ENDPOINTS:
-            raise ValueError('Invalid region: %s' % (region))
-
-        self.selected_region = API_ENDPOINTS[region]
+        if region not in API_ENDPOINTS and host is None:
+            raise ValueError(
+                'Invalid region: %s, no host specified' % (region))
+        if region is not None:
+            self.selected_region = API_ENDPOINTS[region]
 
         super(DimensionDataNodeDriver, self).__init__(key=key, secret=secret,
                                                       secure=secure, host=host,
@@ -118,7 +129,9 @@ class DimensionDataNodeDriver(NodeDriver):
                     ex_memory_gb=None,
                     ex_cpu_specification=None,
                     ex_is_started=True, ex_additional_nics_vlan=None,
-                    ex_additional_nics_ipv4=None, **kwargs):
+                    ex_additional_nics_ipv4=None,
+                    ex_primary_dns=None,
+                    ex_secondary_dns=None, **kwargs):
         """
         Create a new DimensionData node
 
@@ -176,6 +189,14 @@ class DimensionDataNodeDriver(NodeDriver):
         :keyword    ex_additional_nics_ipv4: (MCP2 Only) List of additional
                                               nics to add by ipv4 address
         :type       ex_additional_nics_ipv4: ``list`` of ``str``
+
+        :keyword    ex_primary_dns: The node's primary DNS
+
+        :type       ex_primary_dns: ``str``
+
+        :keyword    ex_secondary_dns: The node's secondary DNS
+
+        :type       ex_secondary_dns: ``str``
 
         :return: The newly created :class:`Node`.
         :rtype: :class:`Node`
@@ -256,6 +277,14 @@ class DimensionDataNodeDriver(NodeDriver):
             elif ex_additional_nics_vlan is not None:
                 raise TypeError("ex_additional_nics_vlan"
                                 "must be None or tuple/list")
+
+        if ex_primary_dns:
+            dns_elm = ET.SubElement(server_elm, "primaryDns")
+            dns_elm.text = ex_primary_dns
+
+        if ex_secondary_dns:
+            dns_elm = ET.SubElement(server_elm, "secondaryDns")
+            dns_elm.text = ex_secondary_dns
 
         response = self.connection.request_with_orgId_api_2(
             'server/deployServer',
@@ -794,17 +823,24 @@ class DimensionDataNodeDriver(NodeDriver):
             rules.extend(self._to_anti_affinity_rules(result))
         return rules
 
-    def ex_attach_node_to_vlan(self, node, vlan):
+    def ex_attach_node_to_vlan(self, node, vlan=None, private_ipv4=None):
         """
         Attach a node to a VLAN by adding an additional NIC to
         the node on the target VLAN. The IP will be automatically
-        assigned based on the VLAN IP network space.
+        assigned based on the VLAN IP network space. Alternatively, provide
+        a private IPv4 address instead of VLAN information, and this will
+        be assigned to the node on corresponding NIC.
 
         :param      node: Node which should be used
         :type       node: :class:`Node`
 
         :param      vlan: VLAN to attach the node to
+                          (required unless private_ipv4)
         :type       vlan: :class:`DimensionDataVlan`
+
+        :keyword    private_ipv4: Private nic IPv4 Address
+                                  (required unless vlan)
+        :type       private_ipv4: ``str``
 
         :rtype: ``bool``
         """
@@ -812,7 +848,14 @@ class DimensionDataNodeDriver(NodeDriver):
                              {'xmlns': TYPES_URN})
         ET.SubElement(request, 'serverId').text = node.id
         nic = ET.SubElement(request, 'nic')
-        ET.SubElement(nic, 'vlanId').text = vlan.id
+
+        if vlan is not None:
+            ET.SubElement(nic, 'vlanId').text = vlan.id
+        elif private_ipv4 is not None:
+            ET.SubElement(nic, 'privateIpv4').text = private_ipv4
+        else:
+            raise ValueError("One of vlan or primary_ipv4 "
+                             "must be specified")
 
         response = self.connection.request_with_orgId_api_2(
             'server/addNic',
@@ -1351,13 +1394,22 @@ class DimensionDataNodeDriver(NodeDriver):
         ET.SubElement(create_node, "protocol").text = rule.protocol
         # Setup source port rule
         source = ET.SubElement(create_node, "source")
-        source_ip = ET.SubElement(source, 'ip')
-        if rule.source.any_ip:
-            source_ip.set('address', 'ANY')
+        if rule.source.address_list_id is not None:
+            source_ip = ET.SubElement(source, 'ipAddressListId')
+            source_ip.text = rule.source.address_list_id
         else:
-            source_ip.set('address', rule.source.ip_address)
-            if rule.source.ip_prefix_size is not None:
-                source_ip.set('prefixSize', str(rule.source.ip_prefix_size))
+            source_ip = ET.SubElement(source, 'ip')
+            if rule.source.any_ip:
+                source_ip.set('address', 'ANY')
+            else:
+                source_ip.set('address', rule.source.ip_address)
+                if rule.source.ip_prefix_size is not None:
+                    source_ip.set('prefixSize',
+                                  str(rule.source.ip_prefix_size))
+        if rule.source.port_list_id is not None:
+            source_port = ET.SubElement(source, 'portListId')
+            source_port.text = rule.source.port_list_id
+        else:
             if rule.source.port_begin is not None:
                 source_port = ET.SubElement(source, 'port')
                 source_port.set('begin', rule.source.port_begin)
@@ -1365,21 +1417,28 @@ class DimensionDataNodeDriver(NodeDriver):
                 source_port.set('end', rule.source.port_end)
         # Setup destination port rule
         dest = ET.SubElement(create_node, "destination")
-        dest_ip = ET.SubElement(dest, 'ip')
-        if rule.destination.any_ip:
-            dest_ip.set('address', 'ANY')
+        if rule.destination.address_list_id is not None:
+            dest_ip = ET.SubElement(dest, 'ipAddressListId')
+            dest_ip.text = rule.destination.address_list_id
         else:
-            dest_ip.set('address', rule.destination.ip_address)
-            if rule.destination.ip_prefix_size is not None:
-                dest_ip.set('prefixSize', rule.destination.ip_prefix_size)
+            dest_ip = ET.SubElement(dest, 'ip')
+            if rule.destination.any_ip:
+                dest_ip.set('address', 'ANY')
+            else:
+                dest_ip.set('address', rule.destination.ip_address)
+                if rule.destination.ip_prefix_size is not None:
+                    dest_ip.set('prefixSize', rule.destination.ip_prefix_size)
+        if rule.destination.port_list_id is not None:
+            dest_port = ET.SubElement(dest, 'portListId')
+            dest_port.text = rule.destination.port_list_id
+        else:
             if rule.destination.port_begin is not None:
                 dest_port = ET.SubElement(dest, 'port')
                 dest_port.set('begin', rule.destination.port_begin)
             if rule.destination.port_end is not None:
                 dest_port.set('end', rule.destination.port_end)
-        ET.SubElement(create_node, "enabled").text = rule.enabled
-
         # Set up positioning of rule
+        ET.SubElement(create_node, "enabled").text = str(rule.enabled).lower()
         placement = ET.SubElement(create_node, "placement")
         if position_relative_to_rule is not None:
             if position not in positions_with_rule:
@@ -1661,7 +1720,8 @@ class DimensionDataNodeDriver(NodeDriver):
         response_code = findtext(result, 'responseCode', TYPES_URN)
         return response_code in ['IN_PROGRESS', 'OK']
 
-    def ex_add_storage_to_node(self, node, amount, speed='STANDARD'):
+    def ex_add_storage_to_node(self, node, amount,
+                               speed='STANDARD', scsi_id=None):
         """
         Add storage to the node
 
@@ -1674,15 +1734,43 @@ class DimensionDataNodeDriver(NodeDriver):
         :param  speed: The disk speed type
         :type   speed: ``str``
 
+        :param  scsi_id: The target SCSI ID (optional)
+        :type   scsi_id: ``int``
+
         :rtype: ``bool``
         """
-        result = self.connection.request_with_orgId_api_1(
-            'server/%s?addLocalStorage&amount=%s&speed=%s' %
-            (node.id, amount, speed)).object
-        response_code = findtext(result, 'result', GENERAL_NS)
-        return response_code in ['IN_PROGRESS', 'SUCCESS']
+        update_node = ET.Element('addDisk',
+                                 {'xmlns': TYPES_URN})
+        update_node.set('id', node.id)
+        ET.SubElement(update_node, 'sizeGb').text = str(amount)
+        ET.SubElement(update_node, 'speed').text = speed.upper()
+        if scsi_id is not None:
+            ET.SubElement(update_node, 'scsiId').text = str(scsi_id)
 
-    def ex_remove_storage_from_node(self, node, disk_id):
+        result = self.connection.request_with_orgId_api_2(
+            'server/addDisk',
+            method='POST',
+            data=ET.tostring(update_node)).object
+        response_code = findtext(result, 'responseCode', TYPES_URN)
+        return response_code in ['IN_PROGRESS', 'OK']
+
+    def ex_remove_storage_from_node(self, node, scsi_id):
+        """
+        Remove storage from a node
+
+        :param  node: The server to add storage to
+        :type   node: :class:`Node`
+
+        :param  scsi_id: The ID of the disk to remove
+        :type   scsi_id: ``str``
+
+        :rtype: ``bool``
+        """
+        disk = [disk for disk in node.extra['disks']
+                if disk.scsi_id == scsi_id][0]
+        return self.ex_remove_storage(disk.id)
+
+    def ex_remove_storage(self, disk_id):
         """
         Remove storage from a node
 
@@ -1694,11 +1782,15 @@ class DimensionDataNodeDriver(NodeDriver):
 
         :rtype: ``bool``
         """
-        result = self.connection.request_with_orgId_api_1(
-            'server/%s/disk/%s?delete' %
-            (node.id, disk_id)).object
-        response_code = findtext(result, 'result', GENERAL_NS)
-        return response_code in ['IN_PROGRESS', 'SUCCESS']
+        remove_disk = ET.Element('removeDisk',
+                                 {'xmlns': TYPES_URN})
+        remove_disk.set('id', disk_id)
+        result = self.connection.request_with_orgId_api_2(
+            'server/removeDisk',
+            method='POST',
+            data=ET.tostring(remove_disk)).object
+        response_code = findtext(result, 'responseCode', TYPES_URN)
+        return response_code in ['IN_PROGRESS', 'OK']
 
     def ex_change_storage_speed(self, node, disk_id, speed):
         """
@@ -1813,6 +1905,23 @@ class DimensionDataNodeDriver(NodeDriver):
         response_code = findtext(result, 'result', GENERAL_NS)
         return response_code in ['IN_PROGRESS', 'SUCCESS']
 
+    def ex_clean_failed_deployment(self, node):
+        """
+        Removes a node that has failed to deploy
+
+        :param  node: The failed node to clean
+        :type   node: :class:`Node` or ``str``
+        """
+        node_id = self._node_to_node_id(node)
+        request_elm = ET.Element('cleanServer',
+                                 {'xmlns': TYPES_URN, 'id': node_id})
+        body = self.connection.request_with_orgId_api_2(
+            'server/cleanServer',
+            method='POST',
+            data=ET.tostring(request_elm)).object
+        response_code = findtext(body, 'responseCode', TYPES_URN)
+        return response_code in ['IN_PROGRESS', 'OK']
+
     def ex_list_customer_images(self, location=None):
         """
         Return a list of customer imported images
@@ -1879,9 +1988,455 @@ class DimensionDataNodeDriver(NodeDriver):
                 raise e
         return self.ex_get_customer_image_by_id(id)
 
+    def ex_create_tag_key(self, name, description=None,
+                          value_required=True, display_on_report=True):
+        """
+        Creates a tag key in the Dimension Data Cloud
+
+        :param name: The name of the tag key (required)
+        :type  name: ``str``
+
+        :param description: The description of the tag key
+        :type  description: ``str``
+
+        :param value_required: If a value is required for the tag
+                               Tags themselves can be just a tag,
+                               or be a key/value pair
+        :type  value_required: ``bool``
+
+        :param display_on_report: Should this key show up on the usage reports
+        :type  display_on_report: ``bool``
+
+        :rtype: ``bool``
+        """
+        create_tag_key = ET.Element('createTagKey', {'xmlns': TYPES_URN})
+        ET.SubElement(create_tag_key, 'name').text = name
+        if description is not None:
+            ET.SubElement(create_tag_key, 'description').text = description
+        ET.SubElement(create_tag_key, 'valueRequired').text = \
+            str(value_required).lower()
+        ET.SubElement(create_tag_key, 'displayOnReport').text = \
+            str(display_on_report).lower()
+        response = self.connection.request_with_orgId_api_2(
+            'tag/createTagKey',
+            method='POST',
+            data=ET.tostring(create_tag_key)).object
+        response_code = findtext(response, 'responseCode', TYPES_URN)
+        return response_code in ['IN_PROGRESS', 'OK']
+
+    def ex_list_tag_keys(self, id=None, name=None,
+                         value_required=None, display_on_report=None):
+        """
+        List tag keys in the Dimension Data Cloud
+
+        :param id: Filter the list to the id of the tag key
+        :type  id: ``str``
+
+        :param name: Filter the list to the name of the tag key
+        :type  name: ``str``
+
+        :param value_required: Filter the list to if a value is required
+                               for a tag key
+        :type  value_required: ``bool``
+
+        :param display_on_report: Filter the list to if the tag key should
+                                  show up on usage reports
+        :type  display_on_report: ``bool``
+
+        :rtype: ``list`` of :class:`DimensionDataTagKey`
+        """
+        params = {}
+        if id is not None:
+            params['id'] = id
+        if name is not None:
+            params['name'] = name
+        if value_required is not None:
+            params['valueRequired'] = str(value_required).lower()
+        if display_on_report is not None:
+            params['displayOnReport'] = str(display_on_report).lower()
+
+        paged_result = self.connection.paginated_request_with_orgId_api_2(
+            'tag/tagKey',
+            method='GET',
+            params=params
+        )
+
+        tag_keys = []
+        for result in paged_result:
+            tag_keys.extend(self._to_tag_keys(result))
+        return tag_keys
+
+    def ex_get_tag_key_by_id(self, id):
+        """
+        Get a specific tag key by ID
+
+        :param id: ID of the tag key you want (required)
+        :type  id: ``str``
+
+        :rtype: :class:`DimensionDataTagKey`
+        """
+        tag_key = self.connection.request_with_orgId_api_2(
+            'tag/tagKey/%s' % id).object
+        return self._to_tag_key(tag_key)
+
+    def ex_get_tag_key_by_name(self, name):
+        """
+        Get a specific tag key by Name
+
+        :param name: Name of the tag key you want (required)
+        :type  name: ``str``
+
+        :rtype: :class:`DimensionDataTagKey`
+        """
+        tag_keys = self.ex_list_tag_keys(name=name)
+        if len(tag_keys) != 1:
+            raise ValueError("No tags found with name %s" % name)
+        return tag_keys[0]
+
+    def ex_modify_tag_key(self, tag_key, name=None, description=None,
+                          value_required=None, display_on_report=None):
+
+        """
+        Modify a specific tag key
+
+        :param tag_key: The tag key you want to modify (required)
+        :type  tag_key: :class:`DimensionDataTagKey` or ``str``
+
+        :param name: Set to modifiy the name of the tag key
+        :type  name: ``str``
+
+        :param description: Set to modify the description of the tag key
+        :type  description: ``str``
+
+        :param value_required: Set to modify if a value is required for
+                               the tag key
+        :type  value_required: ``bool``
+
+        :param display_on_report: Set to modify if this tag key should display
+                                  on the usage reports
+        :type  display_on_report: ``bool``
+
+        :rtype: ``bool``
+        """
+        tag_key_id = self._tag_key_to_tag_key_id(tag_key)
+        modify_tag_key = ET.Element('editTagKey',
+                                    {'xmlns': TYPES_URN, 'id': tag_key_id})
+        if name is not None:
+            ET.SubElement(modify_tag_key, 'name').text = name
+        if description is not None:
+            ET.SubElement(modify_tag_key, 'description').text = description
+        if value_required is not None:
+            ET.SubElement(modify_tag_key, 'valueRequired').text = \
+                str(value_required).lower()
+        if display_on_report is not None:
+            ET.SubElement(modify_tag_key, 'displayOnReport').text = \
+                str(display_on_report).lower()
+
+        response = self.connection.request_with_orgId_api_2(
+            'tag/editTagKey',
+            method='POST',
+            data=ET.tostring(modify_tag_key)).object
+        response_code = findtext(response, 'responseCode', TYPES_URN)
+        return response_code in ['IN_PROGRESS', 'OK']
+
+    def ex_remove_tag_key(self, tag_key):
+        """
+        Modify a specific tag key
+
+        :param tag_key: The tag key you want to remove (required)
+        :type  tag_key: :class:`DimensionDataTagKey` or ``str``
+
+        :rtype: ``bool``
+        """
+        tag_key_id = self._tag_key_to_tag_key_id(tag_key)
+        remove_tag_key = ET.Element('deleteTagKey',
+                                    {'xmlns': TYPES_URN, 'id': tag_key_id})
+        response = self.connection.request_with_orgId_api_2(
+            'tag/deleteTagKey',
+            method='POST',
+            data=ET.tostring(remove_tag_key)).object
+        response_code = findtext(response, 'responseCode', TYPES_URN)
+        return response_code in ['IN_PROGRESS', 'OK']
+
+    def ex_apply_tag_to_asset(self, asset, tag_key, value=None):
+        """
+        Apply a tag to a Dimension Data Asset
+
+        :param asset: The asset to apply a tag to. (required)
+        :type  asset: :class:`Node` or :class:`NodeImage` or
+                      :class:`DimensionDataNewtorkDomain` or
+                      :class:`DimensionDataVlan` or
+                      :class:`DimensionDataPublicIpBlock`
+
+        :param tag_key: The tag_key to apply to the asset. (required)
+        :type  tag_key: :class:`DimensionDataTagKey` or ``str``
+
+        :param value: The value to be assigned to the tag key
+                      This is only required if the :class:`DimensionDataTagKey`
+                      requires it
+        :type  value: ``str``
+
+        :rtype: ``bool``
+        """
+        asset_type = self._get_tagging_asset_type(asset)
+        tag_key_name = self._tag_key_to_tag_key_name(tag_key)
+
+        apply_tags = ET.Element('applyTags', {'xmlns': TYPES_URN})
+        ET.SubElement(apply_tags, 'assetType').text = asset_type
+        ET.SubElement(apply_tags, 'assetId').text = asset.id
+
+        tag_ele = ET.SubElement(apply_tags, 'tag')
+        ET.SubElement(tag_ele, 'tagKeyName').text = tag_key_name
+        if value is not None:
+            ET.SubElement(tag_ele, 'value').text = value
+
+        response = self.connection.request_with_orgId_api_2(
+            'tag/applyTags',
+            method='POST',
+            data=ET.tostring(apply_tags)).object
+        response_code = findtext(response, 'responseCode', TYPES_URN)
+        return response_code in ['IN_PROGRESS', 'OK']
+
+    def ex_remove_tag_from_asset(self, asset, tag_key):
+        """
+        Remove a tag from an asset
+
+        :param asset: The asset to remove a tag from. (required)
+        :type  asset: :class:`Node` or :class:`NodeImage` or
+                      :class:`DimensionDataNewtorkDomain` or
+                      :class:`DimensionDataVlan` or
+                      :class:`DimensionDataPublicIpBlock`
+
+        :param tag_key: The tag key you want to remove (required)
+        :type  tag_key: :class:`DimensionDataTagKey` or ``str``
+
+        :rtype: ``bool``
+        """
+        asset_type = self._get_tagging_asset_type(asset)
+        tag_key_name = self._tag_key_to_tag_key_name(tag_key)
+
+        apply_tags = ET.Element('removeTags', {'xmlns': TYPES_URN})
+        ET.SubElement(apply_tags, 'assetType').text = asset_type
+        ET.SubElement(apply_tags, 'assetId').text = asset.id
+        ET.SubElement(apply_tags, 'tagKeyName').text = tag_key_name
+        response = self.connection.request_with_orgId_api_2(
+            'tag/removeTags',
+            method='POST',
+            data=ET.tostring(apply_tags)).object
+        response_code = findtext(response, 'responseCode', TYPES_URN)
+        return response_code in ['IN_PROGRESS', 'OK']
+
+    def ex_list_tags(self, asset_id=None, asset_type=None, location=None,
+                     tag_key_name=None, tag_key_id=None, value=None,
+                     value_required=None, display_on_report=None):
+        """
+        List tags in the Dimension Data Cloud
+
+        :param asset_id: Filter the list by asset id
+        :type  asset_id: ``str``
+
+        :param asset_type: Filter the list by asset type
+        :type  asset_type: ``str``
+
+        :param location: Filter the list by the assets location
+        :type  location: :class:``NodeLocation`` or ``str``
+
+        :param tag_key_name: Filter the list by a tag key name
+        :type  tag_key_name: ``str``
+
+        :param tag_key_id: Filter the list by a tag key id
+        :type  tag_key_id: ``str``
+
+        :param value: Filter the list by a tag value
+        :type  value: ``str``
+
+        :param value_required: Filter the list to if a value is required
+                               for a tag
+        :type  value_required: ``bool``
+
+        :param display_on_report: Filter the list to if the tag should
+                                  show up on usage reports
+        :type  display_on_report: ``bool``
+
+        :rtype: ``list`` of :class:`DimensionDataTag`
+        """
+        params = {}
+        if asset_id is not None:
+            params['assetId'] = asset_id
+        if asset_type is not None:
+            params['assetType'] = asset_type
+        if location is not None:
+            params['datacenterId'] = self._location_to_location_id(location)
+        if tag_key_name is not None:
+            params['tagKeyName'] = tag_key_name
+        if tag_key_id is not None:
+            params['tagKeyId'] = tag_key_id
+        if value is not None:
+            params['value'] = value
+        if value_required is not None:
+            params['valueRequired'] = str(value_required).lower()
+        if display_on_report is not None:
+            params['displayOnReport'] = str(display_on_report).lower()
+
+        paged_result = self.connection.paginated_request_with_orgId_api_2(
+            'tag/tag',
+            method='GET',
+            params=params
+        )
+
+        tags = []
+        for result in paged_result:
+            tags.extend(self._to_tags(result))
+        return tags
+
+    def ex_summary_usage_report(self, start_date, end_date):
+        """
+        Get summary usage information
+
+        :param start_date: Start date for the report
+        :type  start_date: ``str`` in format YYYY-MM-DD
+
+        :param end_date: End date for the report
+        :type  end_date: ``str`` in format YYYY-MM-DD
+
+        :rtype: ``list`` of ``list``
+        """
+        result = self.connection.raw_request_with_orgId_api_1(
+            'report/usage?startDate=%s&endDate=%s' % (
+                start_date, end_date))
+        return self._format_csv(result.response)
+
+    def ex_detailed_usage_report(self, start_date, end_date):
+        """
+        Get detailed usage information
+
+        :param start_date: Start date for the report
+        :type  start_date: ``str`` in format YYYY-MM-DD
+
+        :param end_date: End date for the report
+        :type  end_date: ``str`` in format YYYY-MM-DD
+
+        :rtype: ``list`` of ``list``
+        """
+        result = self.connection.raw_request_with_orgId_api_1(
+            'report/usageDetailed?startDate=%s&endDate=%s' % (
+                start_date, end_date))
+        return self._format_csv(result.response)
+
+    def ex_software_usage_report(self, start_date, end_date):
+        """
+        Get detailed software usage reports
+
+        :param start_date: Start date for the report
+        :type  start_date: ``str`` in format YYYY-MM-DD
+
+        :param end_date: End date for the report
+        :type  end_date: ``str`` in format YYYY-MM-DD
+
+        :rtype: ``list`` of ``list``
+        """
+        result = self.connection.raw_request_with_orgId_api_1(
+            'report/usageSoftwareUnits?startDate=%s&endDate=%s' % (
+                start_date, end_date))
+        return self._format_csv(result.response)
+
+    def ex_audit_log_report(self, start_date, end_date):
+        """
+        Get audit log report
+
+        :param start_date: Start date for the report
+        :type  start_date: ``str`` in format YYYY-MM-DD
+
+        :param end_date: End date for the report
+        :type  end_date: ``str`` in format YYYY-MM-DD
+
+        :rtype: ``list`` of ``list``
+        """
+        result = self.connection.raw_request_with_orgId_api_1(
+            'report/usageSoftwareUnits?startDate=%s&endDate=%s' % (
+                start_date, end_date))
+        return self._format_csv(result.response)
+
+    def ex_backup_usage_report(self, start_date, end_date, location):
+        """
+        Get audit log report
+
+        :param start_date: Start date for the report
+        :type  start_date: ``str`` in format YYYY-MM-DD
+
+        :param end_date: End date for the report
+        :type  end_date: ``str`` in format YYYY-MM-DD
+
+        :keyword location: Filters the node list to nodes that are
+                           located in this location
+        :type    location: :class:`NodeLocation` or ``str``
+
+        :rtype: ``list`` of ``list``
+        """
+        datacenter_id = self._location_to_location_id(location)
+        result = self.connection.raw_request_with_orgId_api_1(
+            'backup/detailedUsageReport?datacenterId=%s&fromDate=%s&toDate=%s'
+            % (datacenter_id, start_date, end_date))
+        return self._format_csv(result.response)
+
+    def _format_csv(self, http_response):
+        text = http_response.read()
+        lines = str.splitlines(ensure_string(text))
+        return [line.split(',') for line in lines]
+
+    @staticmethod
+    def _get_tagging_asset_type(asset):
+        objecttype = type(asset)
+        if objecttype.__name__ in OBJECT_TO_TAGGING_ASSET_TYPE_MAP:
+            return OBJECT_TO_TAGGING_ASSET_TYPE_MAP[objecttype.__name__]
+        raise TypeError("Asset type %s cannot be tagged" % objecttype.__name__)
+
     def _list_nodes_single_page(self, params={}):
         return self.connection.request_with_orgId_api_2(
             'server/server', params=params).object
+
+    def _to_tags(self, object):
+        tags = []
+        for element in object.findall(fixxpath('tag', TYPES_URN)):
+            tags.append(self._to_tag(element))
+        return tags
+
+    def _to_tag(self, element):
+        tag_key = self._to_tag_key(element, from_tag_api=True)
+        return DimensionDataTag(
+            asset_type=findtext(element, 'assetType', TYPES_URN),
+            asset_id=findtext(element, 'assetId', TYPES_URN),
+            asset_name=findtext(element, 'assetId', TYPES_URN),
+            datacenter=findtext(element, 'datacenterId', TYPES_URN),
+            key=tag_key,
+            value=findtext(element, 'value', TYPES_URN)
+        )
+
+    def _to_tag_keys(self, object):
+        keys = []
+        for element in object.findall(fixxpath('tagKey', TYPES_URN)):
+            keys.append(self._to_tag_key(element))
+        return keys
+
+    def _to_tag_key(self, element, from_tag_api=False):
+        if from_tag_api:
+            id = findtext(element, 'tagKeyId', TYPES_URN)
+            name = findtext(element, 'tagKeyName', TYPES_URN)
+        else:
+            id = element.get('id')
+            name = findtext(element, 'name', TYPES_URN)
+
+        return DimensionDataTagKey(
+            id=id,
+            name=name,
+            description=findtext(element, 'description', TYPES_URN),
+            value_required=self._str2bool(
+                findtext(element, 'valueRequired', TYPES_URN)
+            ),
+            display_on_report=self._str2bool(
+                findtext(element, 'displayOnReport', TYPES_URN)
+            )
+        )
 
     def _to_images(self, object, el_name='osImage'):
         images = []
@@ -1985,13 +2540,30 @@ class DimensionDataNodeDriver(NodeDriver):
     def _to_firewall_address(self, element):
         ip = element.find(fixxpath('ip', TYPES_URN))
         port = element.find(fixxpath('port', TYPES_URN))
-        return DimensionDataFirewallAddress(
-            any_ip=ip.get('address') == 'ANY',
-            ip_address=ip.get('address'),
-            ip_prefix_size=ip.get('prefixSize'),
-            port_begin=port.get('begin') if port is not None else None,
-            port_end=port.get('end') if port is not None else None
-        )
+        port_list = element.find(fixxpath('portList', TYPES_URN))
+        address_list = element.find(fixxpath('ipAddressList', TYPES_URN))
+        if address_list is None:
+            return DimensionDataFirewallAddress(
+                any_ip=ip.get('address') == 'ANY',
+                ip_address=ip.get('address'),
+                ip_prefix_size=ip.get('prefixSize'),
+                port_begin=port.get('begin') if port is not None else None,
+                port_end=port.get('end') if port is not None else None,
+                port_list_id=port_list.get('id', None)
+                if port_list is not None else None,
+                address_list_id=address_list.get('id')
+                if address_list is not None else None)
+        else:
+            return DimensionDataFirewallAddress(
+                any_ip=False,
+                ip_address=None,
+                ip_prefix_size=None,
+                port_begin=None,
+                port_end=None,
+                port_list_id=port_list.get('id', None)
+                if port_list is not None else None,
+                address_list_id=address_list.get('id')
+                if address_list is not None else None)
 
     def _to_ip_blocks(self, object):
         blocks = []
@@ -2296,3 +2868,15 @@ class DimensionDataNodeDriver(NodeDriver):
     @staticmethod
     def _network_domain_to_network_domain_id(network_domain):
         return dd_object_to_id(network_domain, DimensionDataNetworkDomain)
+
+    @staticmethod
+    def _tag_key_to_tag_key_id(tag_key):
+        return dd_object_to_id(tag_key, DimensionDataTagKey)
+
+    @staticmethod
+    def _tag_key_to_tag_key_name(tag_key):
+        return dd_object_to_id(tag_key, DimensionDataTagKey, id_value='name')
+
+    @staticmethod
+    def _str2bool(string):
+        return string.lower() in ("true")

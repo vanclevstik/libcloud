@@ -145,7 +145,7 @@ class ClouDNSDNSDriver(DNSDriver):
             '/dns/records.json', params=params).object
         if not len(records_list):
             return
-        for item in records_list.itervalues():
+        for item in records_list.values():
             yield self._to_record(item, zone=zone)
 
     def get_record(self, zone_id, record_id):

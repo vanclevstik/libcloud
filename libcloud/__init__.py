@@ -19,14 +19,15 @@ libcloud provides a unified interface to the cloud computing resources.
 :var __version__: Current version of libcloud
 """
 
-__all__ = ['__version__', 'enable_debug']
-__version__ = '1.0.0-rc2'
+__all__ = ["__version__", "enable_debug"]
+__version__ = "1.0.0-rc2-ef038d17092c0b6e99e9ac9870cbada1dcd5c782"
 
 import os
 import codecs
 
 try:
     import paramiko
+
     have_paramiko = True
 except ImportError:
     have_paramiko = False
@@ -39,13 +40,15 @@ def enable_debug(fo):
     :param fo: Where to append debugging information
     :type fo: File like object, only write operations are used.
     """
-    from libcloud.common.base import (Connection,
-                                      LoggingHTTPConnection,
-                                      LoggingHTTPSConnection)
+    from libcloud.common.base import (
+        Connection,
+        LoggingHTTPConnection,
+        LoggingHTTPSConnection,
+    )
+
     LoggingHTTPSConnection.log = fo
     LoggingHTTPConnection.log = fo
-    Connection.conn_classes = (LoggingHTTPConnection,
-                               LoggingHTTPSConnection)
+    Connection.conn_classes = (LoggingHTTPConnection, LoggingHTTPSConnection)
 
 
 def _init_once():
@@ -55,9 +58,9 @@ def _init_once():
     This checks for the LIBCLOUD_DEBUG environment variable, which if it exists
     is where we will log debug information about the provider transports.
     """
-    path = os.getenv('LIBCLOUD_DEBUG')
+    path = os.getenv("LIBCLOUD_DEBUG")
     if path:
-        mode = 'a'
+        mode = "a"
 
         # Special case for /dev/stderr and /dev/stdout on Python 3.
         from libcloud.utils.py3 import PY3
@@ -65,13 +68,14 @@ def _init_once():
         # Opening those files in append mode will throw "illegal seek"
         # exception there.
         # Late import to avoid setup.py related side affects
-        if path in ['/dev/stderr', '/dev/stdout'] and PY3:
-            mode = 'w'
+        if path in ["/dev/stderr", "/dev/stdout"] and PY3:
+            mode = "w"
 
-        fo = codecs.open(path, mode, encoding='utf8')
+        fo = codecs.open(path, mode, encoding="utf8")
         enable_debug(fo)
 
         if have_paramiko:
             paramiko.common.logging.basicConfig(level=paramiko.common.DEBUG)
+
 
 _init_once()

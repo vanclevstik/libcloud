@@ -51,8 +51,7 @@ class RackspaceUSTests(unittest.TestCase):
     region = 'us'
 
     def setUp(self):
-        self.klass.connectionCls.conn_classes = (
-            None, RackspaceMockHttp)
+        self.klass.connectionCls.conn_class = RackspaceMockHttp
         RackspaceMockHttp.type = None
 
         driver_kwargs = {'region': self.region}
@@ -145,8 +144,7 @@ class RackspaceUSTests(unittest.TestCase):
         RackspaceMockHttp.type = 'ZONE_DOES_NOT_EXIST'
         try:
             self.driver.list_records(zone=zone)
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, zone.id)
         else:
             self.fail('Exception was not thrown')
@@ -165,8 +163,7 @@ class RackspaceUSTests(unittest.TestCase):
 
         try:
             self.driver.get_zone(zone_id='4444')
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, '4444')
         else:
             self.fail('Exception was not thrown')
@@ -218,8 +215,7 @@ class RackspaceUSTests(unittest.TestCase):
             self.driver.create_zone(domain='foo.bar.com', type='master',
                                     ttl=10,
                                     extra={'email': 'test@test.com'})
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             self.assertEqual(str(e), 'Validation errors: Domain TTL is ' +
                                      'required and must be greater than ' +
                                      'or equal to 300')
@@ -291,8 +287,7 @@ class RackspaceUSTests(unittest.TestCase):
 
         try:
             self.driver.delete_zone(zone=zone)
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, zone.id)
         else:
             self.fail('Exception was not thrown')
@@ -311,8 +306,7 @@ class RackspaceUSTests(unittest.TestCase):
 
         try:
             self.driver.delete_record(record=record)
-        except RecordDoesNotExistError:
-            e = sys.exc_info()[1]
+        except RecordDoesNotExistError as e:
             self.assertEqual(e.record_id, record.id)
         else:
             self.fail('Exception was not thrown')

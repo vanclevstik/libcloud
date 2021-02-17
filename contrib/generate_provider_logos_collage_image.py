@@ -68,7 +68,7 @@ def resize_images(logo_files, output_path):
         new_name = '%s%s' % (name, ext)
         out_name = pjoin(output_path, 'resized/', new_name)
 
-        print 'Resizing image: %(name)s' % {'name': logo_file}
+        print('Resizing image: %(name)s' % {'name': logo_file})
 
         values = {'name': logo_file, 'out_name': out_name,
                   'dimensions': DIMENSIONS}
@@ -89,7 +89,7 @@ def assemble_final_image(resized_images, output_path):
     cmd = 'montage %(images)s -geometry %(geometry)s %(out_name)s'
     cmd = cmd % values
 
-    print 'Generating final image: %(name)s' % {'name': final_name}
+    print('Generating final image: %(name)s' % {'name': final_name})
     subprocess.call(cmd, shell=True)
 
 
@@ -109,6 +109,7 @@ def main(input_path, output_path):
                                    output_path=output_path)
     assemble_final_image(resized_images=resized_images,
                          output_path=output_path)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Assemble provider logos '

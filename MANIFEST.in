@@ -4,10 +4,12 @@ include example_*.py
 include CHANGES.rst
 include README.rst
 include tox.ini
+include .pylintrc
 include requirements-tests.txt
 include libcloud/data/pricing.json
 prune libcloud/test/secrets.py
 include demos/*
+include scripts/check_file_names.sh
 include libcloud/test/*.py
 include libcloud/test/pricing_test.json
 include libcloud/test/secrets.py-dist

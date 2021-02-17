@@ -129,9 +129,11 @@ STANDARD_DRIVES = {
 
 class ElasticHostsException(Exception):
     def __str__(self):
+        # pylint: disable=unsubscriptable-object
         return self.args[0]
 
     def __repr__(self):
+        # pylint: disable=unsubscriptable-object
         return "<ElasticHostsException '%s'>" % (self.args[0])
 
 
@@ -150,7 +152,7 @@ class ElasticHostsNodeDriver(ElasticStackBaseNodeDriver):
                  region=DEFAULT_REGION, **kwargs):
 
         if hasattr(self, '_region'):
-            region = self._region
+            region = getattr(self, '_region', None)
 
         if region not in API_ENDPOINTS:
             raise ValueError('Invalid region: %s' % (region))

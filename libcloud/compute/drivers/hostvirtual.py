@@ -85,13 +85,14 @@ class HostVirtualNodeDriver(NodeDriver):
     def list_locations(self):
         result = self.connection.request(API_ROOT + '/cloud/locations/').object
         locations = []
-        for dc in result:
+        for k in result:
+            dc = result[k]
             locations.append(NodeLocation(
                 dc["id"],
                 dc["name"],
                 dc["name"].split(',')[1].replace(" ", ""),  # country
                 self))
-        return locations
+        return sorted(locations, key=lambda x: int(x.id))
 
     def list_sizes(self, location=None):
         params = {}
@@ -125,7 +126,7 @@ class HostVirtualNodeDriver(NodeDriver):
             images.append(i)
         return images
 
-    def create_node(self, name, image, size, **kwargs):
+    def create_node(self, name, image, size, location=None, auth=None):
         """
         Creates a node
 
@@ -134,7 +135,7 @@ class HostVirtualNodeDriver(NodeDriver):
         >>> from libcloud.compute.base import NodeAuthSSHKey
         >>> key = open('/home/user/.ssh/id_rsa.pub').read()
         >>> auth = NodeAuthSSHKey(pubkey=key)
-        >>> from libcloud.compute.providers import get_driver;
+        >>> from libcloud.compute.providers import get_driver
         >>> driver = get_driver('hostvirtual')
         >>> conn = driver('API_KEY')
         >>> image = conn.list_images()[1]
@@ -147,7 +148,7 @@ class HostVirtualNodeDriver(NodeDriver):
 
         dc = None
 
-        auth = self._get_and_check_auth(kwargs.get('auth'))
+        auth = self._get_and_check_auth(auth)
 
         if not self._is_valid_fqdn(name):
             raise HostVirtualException(
@@ -156,8 +157,8 @@ class HostVirtualNodeDriver(NodeDriver):
         # simply order a package first
         pkg = self.ex_order_package(size)
 
-        if 'location' in kwargs:
-            dc = kwargs['location'].id
+        if location:
+            dc = location.id
         else:
             dc = DEFAULT_NODE_LOCATION_ID
 
@@ -283,7 +284,24 @@ class HostVirtualNodeDriver(NodeDriver):
         node = self._to_node(result)
         return node
 
-    def ex_stop_node(self, node):
+    def start_node(self, node):
+        """
+        Start a node.
+
+        :param      node: Node which should be used
+        :type       node: :class:`Node`
+
+        :rtype: ``bool``
+        """
+        params = {'mbpkgid': node.id}
+        result = self.connection.request(
+            API_ROOT + '/cloud/server/start',
+            data=json.dumps(params),
+            method='POST').object
+
+        return bool(result)
+
+    def stop_node(self, node):
         """
         Stop a node.
 
@@ -301,21 +319,16 @@ class HostVirtualNodeDriver(NodeDriver):
         return bool(result)
 
     def ex_start_node(self, node):
-        """
-        Start a node.
+        # NOTE: This method is here for backward compatibility reasons after
+        # this method was promoted to be part of the standard compute API in
+        # Libcloud v2.7.0
+        return self.start_node(node=node)
 
-        :param      node: Node which should be used
-        :type       node: :class:`Node`
-
-        :rtype: ``bool``
-        """
-        params = {'mbpkgid': node.id}
-        result = self.connection.request(
-            API_ROOT + '/cloud/server/start',
-            data=json.dumps(params),
-            method='POST').object
-
-        return bool(result)
+    def ex_stop_node(self, node):
+        # NOTE: This method is here for backward compatibility reasons after
+        # this method was promoted to be part of the standard compute API in
+        # Libcloud v2.7.0
+        return self.stop_node(node=node)
 
     def ex_provision_node(self, **kwargs):
         """
@@ -442,7 +455,7 @@ class HostVirtualNodeDriver(NodeDriver):
             return False
         if fqdn[-1] == ".":
             fqdn = fqdn[:-1]
-        valid = re.compile("(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
+        valid = re.compile(r"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
         if len(fqdn.split(".")) > 1:
             return all(valid.match(x) for x in fqdn.split("."))
         else:

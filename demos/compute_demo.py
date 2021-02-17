@@ -36,7 +36,7 @@ sys.path.append(os.path.normpath(os.path.join(os.path.dirname(__file__),
 
 from libcloud.common.types import InvalidCredsError
 from libcloud.compute.types import Provider
-from libcloud.providers import get_driver
+from libcloud.compute.providers import get_driver
 
 from pprint import pprint
 
@@ -95,8 +95,7 @@ def main(argv):
     """
     try:
         driver = get_demo_driver()
-    except InvalidCredsError:
-        e = sys.exc_info()[1]
+    except InvalidCredsError as e:
         print("Invalid Credentials: " + e.value)
         return 1
 
@@ -109,10 +108,10 @@ def main(argv):
 
         print(">> Loading sizes... (showing up to 10)")
         pprint(driver.list_sizes()[:10])
-    except Exception:
-        e = sys.exc_info()[1]
+    except Exception as e:
         print("A fatal error occurred: " + e)
         return 1
+
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv))

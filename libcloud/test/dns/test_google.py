@@ -23,7 +23,7 @@ from libcloud.dns.drivers.google import GoogleDNSDriver
 from libcloud.common.google import GoogleBaseAuthConnection
 
 from libcloud.test.common.test_google import GoogleAuthMockHttp, GoogleTestCase
-from libcloud.test import MockHttpTestCase
+from libcloud.test import MockHttp
 from libcloud.test.file_fixtures import DNSFileFixtures
 from libcloud.test.secrets import DNS_PARAMS_GOOGLE, DNS_KEYWORD_PARAMS_GOOGLE
 
@@ -32,17 +32,15 @@ class GoogleTests(GoogleTestCase):
 
     def setUp(self):
         GoogleDNSMockHttp.test = self
-        GoogleDNSDriver.connectionCls.conn_classes = (GoogleDNSMockHttp,
-                                                      GoogleDNSMockHttp)
-        GoogleBaseAuthConnection.conn_classes = (GoogleAuthMockHttp,
-                                                 GoogleAuthMockHttp)
+        GoogleDNSDriver.connectionCls.conn_class = GoogleDNSMockHttp
+        GoogleBaseAuthConnection.conn_class = GoogleAuthMockHttp
         GoogleDNSMockHttp.type = None
         kwargs = DNS_KEYWORD_PARAMS_GOOGLE.copy()
         kwargs['auth_type'] = 'IA'
         self.driver = GoogleDNSDriver(*DNS_PARAMS_GOOGLE, **kwargs)
 
     def test_default_scopes(self):
-        self.assertEqual(self.driver.scopes, None)
+        self.assertIsNone(self.driver.scopes)
 
     def test_list_zones(self):
         zones = self.driver.list_zones()
@@ -63,8 +61,7 @@ class GoogleTests(GoogleTestCase):
 
         try:
             self.driver.get_zone('example-com')
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, 'example-com')
         else:
             self.fail('Exception not thrown')
@@ -83,8 +80,7 @@ class GoogleTests(GoogleTestCase):
 
         try:
             self.driver.get_record('example-com', 'a:a')
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, 'example-com')
         else:
             self.fail('Exception not thrown')
@@ -93,8 +89,7 @@ class GoogleTests(GoogleTestCase):
         GoogleDNSMockHttp.type = 'RECORD_DOES_NOT_EXIST'
         try:
             self.driver.get_record('example-com', "A:foo")
-        except RecordDoesNotExistError:
-            e = sys.exc_info()[1]
+        except RecordDoesNotExistError as e:
             self.assertEqual(e.record_id, 'A:foo')
         else:
             self.fail('Exception not thrown')
@@ -122,7 +117,7 @@ class GoogleTests(GoogleTestCase):
         self.assertEqual(records['deletions'][0].type, 'A')
 
 
-class GoogleDNSMockHttp(MockHttpTestCase):
+class GoogleDNSMockHttp(MockHttp):
     fixtures = DNSFileFixtures('google')
 
     def _dns_v1_projects_project_name_managedZones(

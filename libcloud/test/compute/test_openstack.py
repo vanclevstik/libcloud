@@ -19,6 +19,9 @@ import os
 import sys
 import unittest
 import datetime
+import mock
+import pytest
+
 from libcloud.utils.iso8601 import UTC
 
 try:
@@ -27,26 +30,31 @@ except ImportError:
     import json
 
 from mock import Mock, patch
+import requests_mock
 
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import method_type
 from libcloud.utils.py3 import u
 
+from libcloud.common.base import LibcloudConnection
 from libcloud.common.types import InvalidCredsError, MalformedResponseError, \
     LibcloudError
 from libcloud.compute.types import Provider, KeyPairDoesNotExistError, StorageVolumeState, \
-    VolumeSnapshotState
+    VolumeSnapshotState, NodeImageMemberState
 from libcloud.compute.providers import get_driver
 from libcloud.compute.drivers.openstack import (
-    OpenStack_1_0_NodeDriver, OpenStack_1_0_Response,
+    OpenStack_1_0_NodeDriver,
     OpenStack_1_1_NodeDriver, OpenStackSecurityGroup,
     OpenStackSecurityGroupRule, OpenStack_1_1_FloatingIpPool,
-    OpenStack_1_1_FloatingIpAddress, OpenStackKeyPair
-)
+    OpenStack_1_1_FloatingIpAddress, OpenStackKeyPair,
+    OpenStack_1_0_Connection, OpenStack_2_FloatingIpPool,
+    OpenStackNodeDriver,
+    OpenStack_2_NodeDriver, OpenStack_2_PortInterfaceState, OpenStackNetwork,
+    OpenStackException)
 from libcloud.compute.base import Node, NodeImage, NodeSize
 from libcloud.pricing import set_pricing, clear_pricing_data
 
-from libcloud.test import MockResponse, MockHttpTestCase, XML_HEADERS
+from libcloud.test import MockHttp, XML_HEADERS
 from libcloud.test.file_fixtures import ComputeFileFixtures, OpenStackFixtures
 from libcloud.test.compute import TestCaseMixin
 
@@ -55,36 +63,40 @@ from libcloud.test.secrets import OPENSTACK_PARAMS
 BASE_DIR = os.path.abspath(os.path.split(__file__)[0])
 
 
-class OpenStack_1_0_ResponseTestCase(unittest.TestCase):
-    XML = """<?xml version="1.0" encoding="UTF-8"?><root/>"""
-
-    def test_simple_xml_content_type_handling(self):
-        http_response = MockResponse(
-            200, OpenStack_1_0_ResponseTestCase.XML, headers={'content-type': 'application/xml'})
-        body = OpenStack_1_0_Response(http_response, None).parse_body()
-
-        self.assertTrue(hasattr(body, 'tag'), "Body should be parsed as XML")
-
-    def test_extended_xml_content_type_handling(self):
-        http_response = MockResponse(200,
-                                     OpenStack_1_0_ResponseTestCase.XML,
-                                     headers={'content-type': 'application/xml; charset=UTF-8'})
-        body = OpenStack_1_0_Response(http_response, None).parse_body()
-
-        self.assertTrue(hasattr(body, 'tag'), "Body should be parsed as XML")
-
-    def test_non_xml_content_type_handling(self):
-        RESPONSE_BODY = "Accepted"
-
-        http_response = MockResponse(
-            202, RESPONSE_BODY, headers={'content-type': 'text/html'})
-        body = OpenStack_1_0_Response(http_response, None).parse_body()
-
-        self.assertEqual(
-            body, RESPONSE_BODY, "Non-XML body should be returned as is")
+def test_driver_instantiation_invalid_auth():
+    with pytest.raises(LibcloudError):
+        d = OpenStackNodeDriver(
+            'user', 'correct_password',
+            ex_force_auth_version='5.0',
+            ex_force_auth_url='http://x.y.z.y:5000',
+            ex_tenant_name='admin')
+        d.list_nodes()
 
 
-class OpenStack_1_0_Tests(unittest.TestCase, TestCaseMixin):
+class OpenStackAuthTests(unittest.TestCase):
+    def setUp(self):
+        OpenStack_1_0_NodeDriver.connectionCls = OpenStack_1_0_Connection
+        OpenStack_1_0_NodeDriver.connectionCls.conn_class = LibcloudConnection
+
+    def test_auth_host_passed(self):
+        forced_auth = 'http://x.y.z.y:5000'
+        d = OpenStack_1_0_NodeDriver(
+            'user', 'correct_password',
+            ex_force_auth_version='2.0_password',
+            ex_force_auth_url='http://x.y.z.y:5000',
+            ex_tenant_name='admin')
+        self.assertEqual(d._ex_force_auth_url, forced_auth)
+
+        with requests_mock.Mocker() as mock:
+            body2 = ComputeFileFixtures('openstack').load('_v2_0__auth.json')
+
+            mock.register_uri('POST', 'http://x.y.z.y:5000/v2.0/tokens', text=body2,
+                              headers={'content-type': 'application/json; charset=UTF-8'})
+            d.connection._populate_hosts_and_request_paths()
+            self.assertEqual(d.connection.host, 'test_endpoint.com')
+
+
+class OpenStack_1_0_Tests(TestCaseMixin, unittest.TestCase):
     should_list_locations = False
     should_list_volumes = False
 
@@ -107,8 +119,7 @@ class OpenStack_1_0_Tests(unittest.TestCase, TestCaseMixin):
             return "https://servers.api.rackspacecloud.com/v1.0/slug"
         self.driver_klass.connectionCls.get_endpoint = get_endpoint
 
-        self.driver_klass.connectionCls.conn_classes = (OpenStackMockHttp,
-                                                        OpenStackMockHttp)
+        self.driver_klass.connectionCls.conn_class = OpenStackMockHttp
         self.driver_klass.connectionCls.auth_url = "https://auth.api.example.com"
 
         OpenStackMockHttp.type = None
@@ -167,7 +178,7 @@ class OpenStack_1_0_Tests(unittest.TestCase, TestCaseMixin):
         self.driver.connection._populate_hosts_and_request_paths()
 
         expires = self.driver.connection.auth_token_expires
-        self.assertEqual(expires.isoformat(), "2031-11-23T21:00:14-06:00")
+        self.assertEqual(expires.isoformat(), "2999-11-23T21:00:14-06:00")
 
     def test_auth(self):
         if self.driver.connection._auth_version == '2.0':
@@ -177,8 +188,7 @@ class OpenStack_1_0_Tests(unittest.TestCase, TestCaseMixin):
         try:
             self.driver = self.create_driver()
             self.driver.list_nodes()
-        except InvalidCredsError:
-            e = sys.exc_info()[1]
+        except InvalidCredsError as e:
             self.assertEqual(True, isinstance(e, InvalidCredsError))
         else:
             self.fail('test should have thrown')
@@ -191,8 +201,7 @@ class OpenStack_1_0_Tests(unittest.TestCase, TestCaseMixin):
         try:
             self.driver = self.create_driver()
             self.driver.list_nodes()
-        except MalformedResponseError:
-            e = sys.exc_info()[1]
+        except MalformedResponseError as e:
             self.assertEqual(True, isinstance(e, MalformedResponseError))
         else:
             self.fail('test should have thrown')
@@ -205,8 +214,7 @@ class OpenStack_1_0_Tests(unittest.TestCase, TestCaseMixin):
         try:
             self.driver = self.create_driver()
             self.driver.list_nodes()
-        except MalformedResponseError:
-            e = sys.exc_info()[1]
+        except MalformedResponseError as e:
             self.assertEqual(True, isinstance(e, MalformedResponseError))
         else:
             self.fail('test should have thrown')
@@ -215,8 +223,7 @@ class OpenStack_1_0_Tests(unittest.TestCase, TestCaseMixin):
         OpenStackMockHttp.type = 'NO_MESSAGE_IN_ERROR_BODY'
         try:
             self.driver.list_images()
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             self.assertEqual(True, isinstance(e, Exception))
         else:
             self.fail('test should have thrown')
@@ -285,7 +292,7 @@ class OpenStack_1_0_Tests(unittest.TestCase, TestCaseMixin):
                         driver=self.driver)
         node = self.driver.create_node(name='racktest', image=image, size=size)
         self.assertEqual(node.name, 'racktest')
-        self.assertEqual(node.extra.get('password'), None)
+        self.assertIsNone(node.extra.get('password'))
 
     def test_create_node_ex_shared_ip_group(self):
         OpenStackMockHttp.type = 'EX_SHARED_IP_GROUP'
@@ -307,7 +314,7 @@ class OpenStack_1_0_Tests(unittest.TestCase, TestCaseMixin):
         metadata = {'a': 'b', 'c': 'd'}
         files = {'/file1': 'content1', '/file2': 'content2'}
         node = self.driver.create_node(name='racktest', image=image, size=size,
-                                       metadata=metadata, files=files)
+                                       ex_metadata=metadata, ex_files=files)
         self.assertEqual(node.name, 'racktest')
         self.assertEqual(node.extra.get('password'), 'racktestvJq7d3')
         self.assertEqual(node.extra.get('metadata'), metadata)
@@ -460,7 +467,7 @@ class OpenStack_1_0_FactoryMethodTests(OpenStack_1_0_Tests):
             self.fail('Exception was not thrown')
 
 
-class OpenStackMockHttp(MockHttpTestCase):
+class OpenStackMockHttp(MockHttp, unittest.TestCase):
     fixtures = ComputeFileFixtures('openstack')
     auth_fixtures = OpenStackFixtures()
     json_content_headers = {'content-type': 'application/json; charset=UTF-8'}
@@ -514,7 +521,7 @@ class OpenStackMockHttp(MockHttpTestCase):
             raise NotImplementedError()
         # this is currently used for deletion of an image
         # as such it should not accept GET/POST
-        return(httplib.NO_CONTENT, "", "", httplib.responses[httplib.NO_CONTENT])
+        return(httplib.NO_CONTENT, "", {}, httplib.responses[httplib.NO_CONTENT])
 
     def _v1_0_slug_images(self, method, url, body, headers):
         if method != "POST":
@@ -525,6 +532,16 @@ class OpenStackMockHttp(MockHttpTestCase):
         return (httplib.ACCEPTED, body, XML_HEADERS, httplib.responses[httplib.ACCEPTED])
 
     def _v1_0_slug_images_detail(self, method, url, body, headers):
+        if method != "GET":
+            raise ValueError('Invalid method: %s' % (method))
+
+        body = self.fixtures.load('v1_slug_images_detail.xml')
+        return (httplib.OK, body, XML_HEADERS, httplib.responses[httplib.OK])
+
+    def _v1_0_slug_images_detail_invalid_next(self, method, url, body, headers):
+        if method != "GET":
+            raise ValueError('Invalid method: %s' % (method))
+
         body = self.fixtures.load('v1_slug_images_detail.xml')
         return (httplib.OK, body, XML_HEADERS, httplib.responses[httplib.OK])
 
@@ -591,7 +608,10 @@ class OpenStackMockHttp(MockHttpTestCase):
         body = u(body)
         if body.find('resize') != -1:
             # test_ex_resize_server
-            return (httplib.ACCEPTED, "", headers, httplib.responses[httplib.NO_CONTENT])
+            if body.find('personality') != -1:
+                return httplib.BAD_REQUEST
+            else:
+                return (httplib.ACCEPTED, "", headers, httplib.responses[httplib.NO_CONTENT])
         elif body.find('confirmResize') != -1:
             # test_ex_confirm_resize
             return (httplib.NO_CONTENT, "", headers, httplib.responses[httplib.NO_CONTENT])
@@ -639,8 +659,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         return self.driver_type(*self.driver_args, **self.driver_kwargs)
 
     def setUp(self):
-        self.driver_klass.connectionCls.conn_classes = (
-            OpenStack_2_0_MockHttp, OpenStack_2_0_MockHttp)
+        self.driver_klass.connectionCls.conn_class = OpenStack_2_0_MockHttp
         self.driver_klass.connectionCls.auth_url = "https://auth.api.example.com"
 
         OpenStackMockHttp.type = None
@@ -677,7 +696,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.driver.connection._populate_hosts_and_request_paths()
 
         expires = self.driver.connection.auth_token_expires
-        self.assertEqual(expires.isoformat(), "2031-11-23T21:00:14-06:00")
+        self.assertEqual(expires.isoformat(), "2999-11-23T21:00:14-06:00")
 
     def test_ex_force_base_url(self):
         # change base url and trash the current auth token so we can
@@ -805,11 +824,10 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
 
     def test_list_nodes_no_image_id_attribute(self):
         # Regression test for LIBCLOD-455
-        self.driver_klass.connectionCls.conn_classes[0].type = 'ERROR_STATE_NO_IMAGE_ID'
-        self.driver_klass.connectionCls.conn_classes[1].type = 'ERROR_STATE_NO_IMAGE_ID'
+        self.driver_klass.connectionCls.conn_class.type = 'ERROR_STATE_NO_IMAGE_ID'
 
         nodes = self.driver.list_nodes()
-        self.assertEqual(nodes[0].extra['imageId'], None)
+        self.assertIsNone(nodes[0].extra['imageId'])
 
     def test_list_volumes(self):
         volumes = self.driver.list_volumes()
@@ -942,7 +960,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         size = NodeSize(
             1, '256 slice', None, None, None, None, driver=self.driver)
         node = self.driver.create_node(name='racktest', image=image, size=size,
-                                       availability_zone='testaz')
+                                       ex_availability_zone='testaz')
         self.assertEqual(node.id, '26f7fbee-8ce1-4c28-887a-bfe8e4bb10fe')
         self.assertEqual(node.name, 'racktest')
         self.assertEqual(node.extra['password'], 'racktestvJq7d3')
@@ -973,6 +991,26 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(node.name, 'racktest')
         self.assertTrue(node.extra['config_drive'])
 
+    def test_create_node_from_bootable_volume(self):
+        size = NodeSize(
+            1, '256 slice', None, None, None, None, driver=self.driver)
+
+        node = self.driver.create_node(
+            name='racktest', size=size,
+            ex_blockdevicemappings=[
+                {
+                    'boot_index': 0,
+                    'uuid': 'ee7ee330-b454-4414-8e9f-c70c558dd3af',
+                    'source_type': 'volume',
+                    'destination_type': 'volume',
+                    'delete_on_termination': False
+                }])
+
+        self.assertEqual(node.id, '26f7fbee-8ce1-4c28-887a-bfe8e4bb10fe')
+        self.assertEqual(node.name, 'racktest')
+        self.assertEqual(node.extra['password'], 'racktestvJq7d3')
+        self.assertEqual(node.extra['metadata']['My Server Name'], 'Apache1')
+
     def test_destroy_node(self):
         self.assertTrue(self.node.destroy())
 
@@ -983,6 +1021,30 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         volume = self.driver.create_volume(1, 'test')
         self.assertEqual(volume.name, 'test')
         self.assertEqual(volume.size, 1)
+
+    def test_create_volume_passes_location_to_request_only_if_not_none(self):
+        with patch.object(self.driver.connection, 'request') as mock_request:
+            self.driver.create_volume(1, 'test', location='mylocation')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertEqual(kwargs["data"]["volume"]["availability_zone"], "mylocation")
+
+    def test_create_volume_does_not_pass_location_to_request_if_none(self):
+        with patch.object(self.driver.connection, 'request') as mock_request:
+            self.driver.create_volume(1, 'test')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertFalse("availability_zone" in kwargs["data"]["volume"])
+
+    def test_create_volume_passes_volume_type_to_request_only_if_not_none(self):
+        with patch.object(self.driver.connection, 'request') as mock_request:
+            self.driver.create_volume(1, 'test', ex_volume_type='myvolumetype')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertEqual(kwargs["data"]["volume"]["volume_type"], "myvolumetype")
+
+    def test_create_volume_does_not_pass_volume_type_to_request_if_none(self):
+        with patch.object(self.driver.connection, 'request') as mock_request:
+            self.driver.create_volume(1, 'test')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertFalse("volume_type" in kwargs["data"]["volume"])
 
     def test_destroy_volume(self):
         volume = self.driver.ex_get_volume(
@@ -995,6 +1057,16 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
             'cd76a3a1-c4ce-40f6-9b9f-07a61508938d')
         self.assertEqual(
             self.driver.attach_volume(node, volume, '/dev/sdb'), True)
+
+    def test_attach_volume_device_auto(self):
+        node = self.driver.list_nodes()[0]
+        volume = self.driver.ex_get_volume(
+            'cd76a3a1-c4ce-40f6-9b9f-07a61508938d')
+
+        OpenStack_2_0_MockHttp.type = 'DEVICE_AUTO'
+
+        self.assertEqual(
+            self.driver.attach_volume(node, volume, 'auto'), True)
 
     def test_detach_volume(self):
         node = self.driver.list_nodes()[0]
@@ -1037,22 +1109,19 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
                         driver=self.driver)
         try:
             self.driver.ex_resize(self.node, size)
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             self.fail('An error was raised: ' + repr(e))
 
     def test_ex_confirm_resize(self):
         try:
             self.driver.ex_confirm_resize(self.node)
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             self.fail('An error was raised: ' + repr(e))
 
     def test_ex_revert_resize(self):
         try:
             self.driver.ex_revert_resize(self.node)
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             self.fail('An error was raised: ' + repr(e))
 
     def test_create_image(self):
@@ -1105,20 +1174,31 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(node.id, '12064')
         self.assertEqual(node.name, 'lc-test')
 
+    def test_ex_get_node_details_returns_none_if_node_does_not_exist(self):
+        node = self.driver.ex_get_node_details('does-not-exist')
+        self.assertTrue(node is None)
+
     def test_ex_get_size(self):
         size_id = '7'
         size = self.driver.ex_get_size(size_id)
         self.assertEqual(size.id, size_id)
         self.assertEqual(size.name, '15.5GB slice')
 
+    def test_ex_get_size_extra_specs(self):
+        size_id = '7'
+        extra_specs = self.driver.ex_get_size_extra_specs(size_id)
+        self.assertEqual(extra_specs, {"hw:cpu_policy": "shared",
+                                       "hw:numa_nodes": "1"})
+
     def test_get_image(self):
         image_id = '13'
         image = self.driver.get_image(image_id)
         self.assertEqual(image.id, image_id)
         self.assertEqual(image.name, 'Windows 2008 SP2 x86 (B24)')
-        self.assertEqual(image.extra['serverId'], None)
+        self.assertIsNone(image.extra['serverId'])
         self.assertEqual(image.extra['minDisk'], "5")
         self.assertEqual(image.extra['minRam'], "256")
+        self.assertIsNone(image.extra['visibility'])
 
     def test_delete_image(self):
         image = NodeImage(
@@ -1220,7 +1300,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(security_group_rule.from_port, 14)
         self.assertEqual(security_group_rule.to_port, 16)
         self.assertEqual(security_group_rule.ip_range, '0.0.0.0/0')
-        self.assertEqual(security_group_rule.tenant_id, None)
+        self.assertIsNone(security_group_rule.tenant_id)
 
     def test_ex_delete_security_group_rule(self):
         security_group_rule = OpenStackSecurityGroupRule(
@@ -1236,7 +1316,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(
             keypair.fingerprint, '5d:66:33:ae:99:0f:fb:cb:86:f2:bc:ae:53:99:b6:ed')
         self.assertTrue(len(keypair.public_key) > 10)
-        self.assertEqual(keypair.private_key, None)
+        self.assertIsNone(keypair.private_key)
 
     def test_get_key_pair(self):
         key_pair = self.driver.get_key_pair(name='test-key-pair')
@@ -1261,28 +1341,34 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
     def test_import_key_pair_from_file(self):
         name = 'key3'
         path = os.path.join(
-            os.path.dirname(__file__), 'fixtures', 'misc', 'dummy_rsa.pub')
-        pub_key = open(path, 'r').read()
+            os.path.dirname(__file__), 'fixtures', 'misc', 'test_rsa.pub')
+
+        with open(path, 'r') as fp:
+            pub_key = fp.read()
+
         keypair = self.driver.import_key_pair_from_file(name=name,
                                                         key_file_path=path)
         self.assertEqual(keypair.name, name)
         self.assertEqual(
             keypair.fingerprint, '97:10:a6:e7:92:65:7e:69:fe:e6:81:8f:39:3c:8f:5a')
         self.assertEqual(keypair.public_key, pub_key)
-        self.assertEqual(keypair.private_key, None)
+        self.assertIsNone(keypair.private_key)
 
     def test_import_key_pair_from_string(self):
         name = 'key3'
         path = os.path.join(
-            os.path.dirname(__file__), 'fixtures', 'misc', 'dummy_rsa.pub')
-        pub_key = open(path, 'r').read()
+            os.path.dirname(__file__), 'fixtures', 'misc', 'test_rsa.pub')
+
+        with open(path, 'r') as fp:
+            pub_key = fp.read()
+
         keypair = self.driver.import_key_pair_from_string(name=name,
                                                           key_material=pub_key)
         self.assertEqual(keypair.name, name)
         self.assertEqual(
             keypair.fingerprint, '97:10:a6:e7:92:65:7e:69:fe:e6:81:8f:39:3c:8f:5a')
         self.assertEqual(keypair.public_key, pub_key)
-        self.assertEqual(keypair.private_key, None)
+        self.assertIsNone(keypair.private_key)
 
     def test_delete_key_pair(self):
         keypair = OpenStackKeyPair(
@@ -1324,7 +1410,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(ret[0].id, '09ea1784-2f81-46dc-8c91-244b4df75bde')
         self.assertEqual(ret[0].pool, pool)
         self.assertEqual(ret[0].ip_address, '10.3.1.42')
-        self.assertEqual(ret[0].node_id, None)
+        self.assertIsNone(ret[0].node_id)
         self.assertEqual(ret[1].id, '04c5336a-0629-4694-ba30-04b0bdfa88a4')
         self.assertEqual(ret[1].pool, pool)
         self.assertEqual(ret[1].ip_address, '10.3.1.1')
@@ -1338,7 +1424,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(ret.id, '09ea1784-2f81-46dc-8c91-244b4df75bde')
         self.assertEqual(ret.pool, pool)
         self.assertEqual(ret.ip_address, '10.3.1.42')
-        self.assertEqual(ret.node_id, None)
+        self.assertIsNone(ret.node_id)
 
     def test_OpenStack_1_1_FloatingIpPool_create_floating_ip(self):
         pool = OpenStack_1_1_FloatingIpPool('foo', self.driver.connection)
@@ -1347,7 +1433,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(ret.id, '09ea1784-2f81-46dc-8c91-244b4df75bde')
         self.assertEqual(ret.pool, pool)
         self.assertEqual(ret.ip_address, '10.3.1.42')
-        self.assertEqual(ret.node_id, None)
+        self.assertIsNone(ret.node_id)
 
     def test_OpenStack_1_1_FloatingIpPool_delete_floating_ip(self):
         pool = OpenStack_1_1_FloatingIpPool('foo', self.driver.connection)
@@ -1364,23 +1450,62 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
 
         self.assertEqual(pool.delete_floating_ip.call_count, 1)
 
-    def test_ex_list_network(self):
-        networks = self.driver.ex_list_networks()
-        network = networks[0]
+    def test_OpenStack_2_FloatingIpPool_list_floating_ips(self):
+        pool = OpenStack_2_FloatingIpPool(1, 'foo', self.driver.connection)
+        ret = pool.list_floating_ips()
 
-        self.assertEqual(len(networks), 3)
-        self.assertEqual(network.name, 'test1')
-        self.assertEqual(network.cidr, '127.0.0.0/24')
+        self.assertEqual(ret[0].id, '09ea1784-2f81-46dc-8c91-244b4df75bde')
+        self.assertEqual(ret[0].pool, pool)
+        self.assertEqual(ret[0].ip_address, '10.3.1.42')
+        self.assertEqual(ret[0].node_id, None)
+        self.assertEqual(ret[1].id, '04c5336a-0629-4694-ba30-04b0bdfa88a4')
+        self.assertEqual(ret[1].pool, pool)
+        self.assertEqual(ret[1].ip_address, '10.3.1.1')
+        self.assertEqual(
+            ret[1].node_id, 'fcfc96da-19e2-40fd-8497-f29da1b21143')
+        self.assertEqual(ret[2].id, '123c5336a-0629-4694-ba30-04b0bdfa88a4')
+        self.assertEqual(ret[2].pool, pool)
+        self.assertEqual(ret[2].ip_address, '10.3.1.2')
+        self.assertEqual(
+            ret[2].node_id, 'cb4fba64-19e2-40fd-8497-f29da1b21143')
+        self.assertEqual(ret[3].id, '123c5336a-0629-4694-ba30-04b0bdfa88a4')
+        self.assertEqual(ret[3].pool, pool)
+        self.assertEqual(ret[3].ip_address, '10.3.1.3')
+        self.assertEqual(
+            ret[3].node_id, 'cb4fba64-19e2-40fd-8497-f29da1b21143')
 
-    def test_ex_create_network(self):
-        network = self.driver.ex_create_network(name='test1',
-                                                cidr='127.0.0.0/24')
-        self.assertEqual(network.name, 'test1')
-        self.assertEqual(network.cidr, '127.0.0.0/24')
+    def test_OpenStack_2_FloatingIpPool_get_floating_ip(self):
+        pool = OpenStack_2_FloatingIpPool(1, 'foo', self.driver.connection)
+        ret = pool.get_floating_ip('10.3.1.42')
 
-    def test_ex_delete_network(self):
-        network = self.driver.ex_list_networks()[0]
-        self.assertTrue(self.driver.ex_delete_network(network=network))
+        self.assertEqual(ret.id, '09ea1784-2f81-46dc-8c91-244b4df75bde')
+        self.assertEqual(ret.pool, pool)
+        self.assertEqual(ret.ip_address, '10.3.1.42')
+        self.assertEqual(ret.node_id, None)
+
+    def test_OpenStack_2_FloatingIpPool_create_floating_ip(self):
+        pool = OpenStack_2_FloatingIpPool(1, 'foo', self.driver.connection)
+        ret = pool.create_floating_ip()
+
+        self.assertEqual(ret.id, '09ea1784-2f81-46dc-8c91-244b4df75bde')
+        self.assertEqual(ret.pool, pool)
+        self.assertEqual(ret.ip_address, '10.3.1.42')
+        self.assertEqual(ret.node_id, None)
+
+    def test_OpenStack_2_FloatingIpPool_delete_floating_ip(self):
+        pool = OpenStack_2_FloatingIpPool(1, 'foo', self.driver.connection)
+        ip = OpenStack_1_1_FloatingIpAddress('foo-bar-id', '42.42.42.42', pool)
+
+        self.assertTrue(pool.delete_floating_ip(ip))
+
+    def test_OpenStack_2_FloatingIpAddress_delete(self):
+        pool = OpenStack_2_FloatingIpPool(1, 'foo', self.driver.connection)
+        pool.delete_floating_ip = Mock()
+        ip = OpenStack_1_1_FloatingIpAddress('foo-bar-id', '42.42.42.42', pool)
+
+        ip.pool.delete_floating_ip()
+
+        self.assertEqual(pool.delete_floating_ip.call_count, 1)
 
     def test_ex_get_metadata_for_node(self):
         image = NodeImage(id=11, name='Ubuntu 8.10 (intrepid)', driver=self.driver)
@@ -1407,6 +1532,22 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
             public_ips=None, private_ips=None, driver=self.driver,
         )
         ret = self.driver.ex_unpause_node(node)
+        self.assertTrue(ret is True)
+
+    def test_ex_stop_node(self):
+        node = Node(
+            id='12063', name=None, state=None,
+            public_ips=None, private_ips=None, driver=self.driver,
+        )
+        ret = self.driver.ex_stop_node(node)
+        self.assertTrue(ret is True)
+
+    def test_ex_start_node(self):
+        node = Node(
+            id='12063', name=None, state=None,
+            public_ips=None, private_ips=None, driver=self.driver,
+        )
+        ret = self.driver.ex_start_node(node)
         self.assertTrue(ret is True)
 
     def test_ex_suspend_node(self):
@@ -1436,26 +1577,36 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
 
     def test_ex_list_snapshots(self):
         if self.driver_type.type == 'rackspace':
-            self.conn_classes[0].type = 'RACKSPACE'
-            self.conn_classes[1].type = 'RACKSPACE'
+            self.conn_class.type = 'RACKSPACE'
 
         snapshots = self.driver.ex_list_snapshots()
         self.assertEqual(len(snapshots), 3)
         self.assertEqual(snapshots[0].created, datetime.datetime(2012, 2, 29, 3, 50, 7, tzinfo=UTC))
         self.assertEqual(snapshots[0].extra['created'], "2012-02-29T03:50:07Z")
         self.assertEqual(snapshots[0].extra['name'], 'snap-001')
+        self.assertEqual(snapshots[0].name, 'snap-001')
         self.assertEqual(snapshots[0].state, VolumeSnapshotState.AVAILABLE)
 
         # invalid date is parsed as None
         assert snapshots[2].created is None
+
+    def test_ex_get_snapshot(self):
+        if self.driver_type.type == 'rackspace':
+            self.conn_class.type = 'RACKSPACE'
+
+        snapshot = self.driver.ex_get_snapshot('3fbbcccf-d058-4502-8844-6feeffdf4cb5')
+        self.assertEqual(snapshot.created, datetime.datetime(2012, 2, 29, 3, 50, 7, tzinfo=UTC))
+        self.assertEqual(snapshot.extra['created'], "2012-02-29T03:50:07Z")
+        self.assertEqual(snapshot.extra['name'], 'snap-001')
+        self.assertEqual(snapshot.name, 'snap-001')
+        self.assertEqual(snapshot.state, VolumeSnapshotState.AVAILABLE)
 
     def test_list_volume_snapshots(self):
         volume = self.driver.list_volumes()[0]
 
         # rackspace needs a different mocked response for snapshots, but not for volumes
         if self.driver_type.type == 'rackspace':
-            self.conn_classes[0].type = 'RACKSPACE'
-            self.conn_classes[1].type = 'RACKSPACE'
+            self.conn_class.type = 'RACKSPACE'
 
         snapshots = self.driver.list_volume_snapshots(volume)
         self.assertEqual(len(snapshots), 1)
@@ -1464,8 +1615,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
     def test_create_volume_snapshot(self):
         volume = self.driver.list_volumes()[0]
         if self.driver_type.type == 'rackspace':
-            self.conn_classes[0].type = 'RACKSPACE'
-            self.conn_classes[1].type = 'RACKSPACE'
+            self.conn_class.type = 'RACKSPACE'
 
         ret = self.driver.create_volume_snapshot(volume,
                                                  'Test Volume',
@@ -1476,8 +1626,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
     def test_ex_create_snapshot(self):
         volume = self.driver.list_volumes()[0]
         if self.driver_type.type == 'rackspace':
-            self.conn_classes[0].type = 'RACKSPACE'
-            self.conn_classes[1].type = 'RACKSPACE'
+            self.conn_class.type = 'RACKSPACE'
 
         ret = self.driver.ex_create_snapshot(volume,
                                              'Test Volume',
@@ -1485,10 +1634,22 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
                                              force=True)
         self.assertEqual(ret.id, '3fbbcccf-d058-4502-8844-6feeffdf4cb5')
 
+    def test_ex_create_snapshot_does_not_post_optional_parameters_if_none(self):
+        volume = self.driver.list_volumes()[0]
+        with patch.object(self.driver, '_to_snapshot'):
+            with patch.object(self.driver.connection, 'request') as mock_request:
+                self.driver.create_volume_snapshot(volume,
+                                                   name=None,
+                                                   ex_description=None,
+                                                   ex_force=True)
+
+        name, args, kwargs = mock_request.mock_calls[0]
+        self.assertFalse("display_name" in kwargs["data"]["snapshot"])
+        self.assertFalse("display_description" in kwargs["data"]["snapshot"])
+
     def test_destroy_volume_snapshot(self):
         if self.driver_type.type == 'rackspace':
-            self.conn_classes[0].type = 'RACKSPACE'
-            self.conn_classes[1].type = 'RACKSPACE'
+            self.conn_class.type = 'RACKSPACE'
 
         snapshot = self.driver.ex_list_snapshots()[0]
         ret = self.driver.destroy_volume_snapshot(snapshot)
@@ -1496,13 +1657,502 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
 
     def test_ex_delete_snapshot(self):
         if self.driver_type.type == 'rackspace':
-            self.conn_classes[0].type = 'RACKSPACE'
-            self.conn_classes[1].type = 'RACKSPACE'
+            self.conn_class.type = 'RACKSPACE'
 
         snapshot = self.driver.ex_list_snapshots()[0]
         ret = self.driver.ex_delete_snapshot(snapshot)
         self.assertTrue(ret)
 
+
+class OpenStack_2_Tests(OpenStack_1_1_Tests):
+    driver_klass = OpenStack_2_NodeDriver
+    driver_type = OpenStack_2_NodeDriver
+    driver_kwargs = {
+        'ex_force_auth_version': '2.0',
+        'ex_force_auth_url': 'https://auth.api.example.com'
+    }
+
+    def setUp(self):
+        super(OpenStack_2_Tests, self).setUp()
+        self.driver_klass.image_connectionCls.conn_class = OpenStack_2_0_MockHttp
+        self.driver_klass.image_connectionCls.auth_url = "https://auth.api.example.com"
+        # normally authentication happens lazily, but we force it here
+        self.driver.image_connection._populate_hosts_and_request_paths()
+
+        self.driver_klass.network_connectionCls.conn_class = OpenStack_2_0_MockHttp
+        self.driver_klass.network_connectionCls.auth_url = "https://auth.api.example.com"
+        # normally authentication happens lazily, but we force it here
+        self.driver.network_connection._populate_hosts_and_request_paths()
+
+        self.driver_klass.volumev2_connectionCls.conn_class = OpenStack_2_0_MockHttp
+        self.driver_klass.volumev2_connectionCls.auth_url = "https://auth.api.example.com"
+        # normally authentication happens lazily, but we force it here
+        self.driver.volumev2_connection._populate_hosts_and_request_paths()
+
+    def test__paginated_request_single_page(self):
+        snapshots = self.driver._paginated_request(
+            '/snapshots/detail', 'snapshots',
+            self.driver.volumev2_connection
+        )['snapshots']
+
+        self.assertEqual(len(snapshots), 3)
+        self.assertEqual(snapshots[0]['name'], 'snap-001')
+
+    def test__paginated_request_two_pages(self):
+        snapshots = self.driver._paginated_request(
+            '/snapshots/detail?unit_test=paginate', 'snapshots',
+            self.driver.volumev2_connection
+        )['snapshots']
+
+        self.assertEqual(len(snapshots), 6)
+        self.assertEqual(snapshots[0]['name'], 'snap-101')
+        self.assertEqual(snapshots[3]['name'], 'snap-001')
+
+    def test_list_images_with_pagination_invalid_response_no_infinite_loop(self):
+        # "next" attribute matches the current page, but it shouldn't result in
+        # an infite loop
+        OpenStack_2_0_MockHttp.type = 'invalid_next'
+        ret = self.driver.list_images()
+        self.assertEqual(len(ret), 2)
+
+    # NOTE: We use a smaller limit to speed tests up.
+    @mock.patch('libcloud.compute.drivers.openstack.PAGINATION_LIMIT', 10)
+    def test__paginated_request_raises_if_stuck_in_a_loop(self):
+        with pytest.raises(OpenStackException):
+            self.driver._paginated_request(
+                '/snapshots/detail?unit_test=pagination_loop', 'snapshots',
+                self.driver.volumev2_connection
+            )
+
+    def test_ex_force_auth_token_passed_to_connection(self):
+        base_url = 'https://servers.api.rackspacecloud.com/v1.1/slug'
+        kwargs = {
+            'ex_force_auth_version': '2.0',
+            'ex_force_auth_token': 'preset-auth-token',
+            'ex_force_auth_url': 'https://auth.api.example.com',
+            'ex_force_base_url': base_url
+        }
+
+        driver = self.driver_type(*self.driver_args, **kwargs)
+        driver.list_nodes()
+
+        self.assertEqual(kwargs['ex_force_auth_token'],
+                         driver.connection.auth_token)
+        self.assertEqual('servers.api.rackspacecloud.com',
+                         driver.connection.host)
+        self.assertEqual('/v1.1/slug', driver.connection.request_path)
+        self.assertEqual(443, driver.connection.port)
+
+    def test_get_image(self):
+        image_id = 'f24a3c1b-d52a-4116-91da-25b3eee8f55e'
+        image = self.driver.get_image(image_id)
+        self.assertEqual(image.id, image_id)
+        self.assertEqual(image.name, 'hypernode')
+        self.assertIsNone(image.extra['serverId'])
+        self.assertEqual(image.extra['minDisk'], 40)
+        self.assertEqual(image.extra['minRam'], 0)
+        self.assertEqual(image.extra['visibility'], "shared")
+
+    def test_list_images(self):
+        images = self.driver.list_images()
+        self.assertEqual(len(images), 3, 'Wrong images count')
+
+        image = images[0]
+        self.assertEqual(image.id, 'f24a3c1b-d52a-4116-91da-25b3eee8f55e')
+        self.assertEqual(image.name, 'hypernode')
+        self.assertEqual(image.extra['updated'], '2017-11-28T10:19:49Z')
+        self.assertEqual(image.extra['created'], '2017-09-11T13:00:05Z')
+        self.assertEqual(image.extra['status'], 'active')
+        self.assertEqual(image.extra['os_type'], 'linux')
+        self.assertIsNone(image.extra['serverId'])
+        self.assertEqual(image.extra['minDisk'], 40)
+        self.assertEqual(image.extra['minRam'], 0)
+
+    def test_ex_update_image(self):
+        image_id = 'f24a3c1b-d52a-4116-91da-25b3eee8f55e'
+        data = {
+            'op': 'replace',
+            'path': '/visibility',
+            'value': 'shared'
+        }
+        image = self.driver.ex_update_image(image_id, data)
+        self.assertEqual(image.name, 'hypernode')
+        self.assertIsNone(image.extra['serverId'])
+        self.assertEqual(image.extra['minDisk'], 40)
+        self.assertEqual(image.extra['minRam'], 0)
+        self.assertEqual(image.extra['visibility'], "shared")
+
+    def test_ex_list_image_members(self):
+        image_id = 'd9a9cd9a-278a-444c-90a6-d24b8c688a63'
+        image_member_id = '016926dff12345e8b10329f24c99745b'
+        image_members = self.driver.ex_list_image_members(image_id)
+        self.assertEqual(len(image_members), 30, 'Wrong image member count')
+
+        image_member = image_members[0]
+        self.assertEqual(image_member.id, image_member_id)
+        self.assertEqual(image_member.image_id, image_id)
+        self.assertEqual(image_member.state, NodeImageMemberState.ACCEPTED)
+        self.assertEqual(image_member.created, '2017-01-12T12:31:50Z')
+        self.assertEqual(image_member.extra['updated'], '2017-01-12T12:31:54Z')
+        self.assertEqual(image_member.extra['schema'], '/v2/schemas/member')
+
+    def test_ex_create_image_member(self):
+        image_id = '9af1a54e-a1b2-4df8-b747-4bec97abc799'
+        image_member_id = 'e2151b1fe02d4a8a2d1f5fc331522c0a'
+        image_member = self.driver.ex_create_image_member(
+            image_id, image_member_id
+        )
+
+        self.assertEqual(image_member.id, image_member_id)
+        self.assertEqual(image_member.image_id, image_id)
+        self.assertEqual(image_member.state, NodeImageMemberState.PENDING)
+        self.assertEqual(image_member.created, '2018-03-02T14:19:38Z')
+        self.assertEqual(image_member.extra['updated'], '2018-03-02T14:19:38Z')
+        self.assertEqual(image_member.extra['schema'], '/v2/schemas/member')
+
+    def test_ex_get_image_member(self):
+        image_id = 'd9a9cd9a-278a-444c-90a6-d24b8c688a63'
+        image_member_id = '016926dff12345e8b10329f24c99745b'
+        image_member = self.driver.ex_get_image_member(
+            image_id, image_member_id
+        )
+
+        self.assertEqual(image_member.id, image_member_id)
+        self.assertEqual(image_member.image_id, image_id)
+        self.assertEqual(image_member.state, NodeImageMemberState.ACCEPTED)
+        self.assertEqual(image_member.created, '2017-01-12T12:31:50Z')
+        self.assertEqual(image_member.extra['updated'], '2017-01-12T12:31:54Z')
+        self.assertEqual(image_member.extra['schema'], '/v2/schemas/member')
+
+    def test_ex_accept_image_member(self):
+        image_id = '8af1a54e-a1b2-4df8-b747-4bec97abc799'
+        image_member_id = 'e2151b1fe02d4a8a2d1f5fc331522c0a'
+        image_member = self.driver.ex_accept_image_member(
+            image_id, image_member_id
+        )
+
+        self.assertEqual(image_member.id, image_member_id)
+        self.assertEqual(image_member.image_id, image_id)
+        self.assertEqual(image_member.state, NodeImageMemberState.ACCEPTED)
+        self.assertEqual(image_member.created, '2018-03-02T14:19:38Z')
+        self.assertEqual(image_member.extra['updated'], '2018-03-02T14:20:37Z')
+        self.assertEqual(image_member.extra['schema'], '/v2/schemas/member')
+
+    def test_ex_list_networks(self):
+        networks = self.driver.ex_list_networks()
+        network = networks[0]
+
+        self.assertEqual(len(networks), 2)
+        self.assertEqual(network.name, 'net1')
+        self.assertEqual(network.extra['subnets'], ['54d6f61d-db07-451c-9ab3-b9609b6b6f0b'])
+
+    def test_ex_get_network(self):
+        network = self.driver.ex_get_network("cc2dad14-827a-feea-416b-f13e50511a0a")
+
+        self.assertEqual(network.id, "cc2dad14-827a-feea-416b-f13e50511a0a")
+        self.assertTrue(isinstance(network, OpenStackNetwork))
+        self.assertEqual(network.name, 'net2')
+
+    def test_ex_list_subnets(self):
+        subnets = self.driver.ex_list_subnets()
+        subnet = subnets[0]
+
+        self.assertEqual(len(subnets), 2)
+        self.assertEqual(subnet.name, 'private-subnet')
+        self.assertEqual(subnet.cidr, '10.0.0.0/24')
+
+    def test_ex_create_subnet(self):
+        network = self.driver.ex_list_networks()[0]
+        subnet = self.driver.ex_create_subnet('name', network, '10.0.0.0/24',
+                                              ip_version=4,
+                                              dns_nameservers=["10.0.0.01"])
+
+        self.assertEqual(subnet.name, 'name')
+        self.assertEqual(subnet.cidr, '10.0.0.0/24')
+
+    def test_ex_delete_subnet(self):
+        subnet = self.driver.ex_list_subnets()[0]
+        self.assertTrue(self.driver.ex_delete_subnet(subnet=subnet))
+
+    def test_ex_update_subnet(self):
+        subnet = self.driver.ex_list_subnets()[0]
+        subnet = self.driver.ex_update_subnet(subnet, name='net2')
+        self.assertEqual(subnet.name, 'name')
+
+    def test_ex_list_network(self):
+        networks = self.driver.ex_list_networks()
+        network = networks[0]
+
+        self.assertEqual(len(networks), 2)
+        self.assertEqual(network.name, 'net1')
+
+    def test_ex_create_network(self):
+        network = self.driver.ex_create_network(name='net1',
+                                                cidr='127.0.0.0/24')
+        self.assertEqual(network.name, 'net1')
+
+    def test_ex_delete_network(self):
+        network = self.driver.ex_list_networks()[0]
+        self.assertTrue(self.driver.ex_delete_network(network=network))
+
+    def test_ex_list_ports(self):
+        ports = self.driver.ex_list_ports()
+
+        port = ports[0]
+        self.assertEqual(port.id, '126da55e-cfcb-41c8-ae39-a26cb8a7e723')
+        self.assertEqual(port.state, OpenStack_2_PortInterfaceState.BUILD)
+        self.assertEqual(port.created, '2018-07-04T14:38:18Z')
+        self.assertEqual(
+            port.extra['network_id'],
+            '123c8a8c-6427-4e8f-a805-2035365f4d43'
+        )
+        self.assertEqual(
+            port.extra['project_id'],
+            'abcdec85bee34bb0a44ab8255eb36abc'
+        )
+        self.assertEqual(
+            port.extra['tenant_id'],
+            'abcdec85bee34bb0a44ab8255eb36abc'
+        )
+        self.assertEqual(port.extra['name'], '')
+
+    def test_ex_create_port(self):
+        network = OpenStackNetwork(id='123c8a8c-6427-4e8f-a805-2035365f4d43', name='test-network',
+                                   cidr='1.2.3.4', driver=self.driver)
+        port = self.driver.ex_create_port(network=network, description='Some port description', name='Some port name',
+                                          admin_state_up=True)
+
+        self.assertEqual(port.id, '126da55e-cfcb-41c8-ae39-a26cb8a7e723')
+        self.assertEqual(port.state, OpenStack_2_PortInterfaceState.BUILD)
+        self.assertEqual(port.created, '2018-07-04T14:38:18Z')
+        self.assertEqual(
+            port.extra['network_id'],
+            '123c8a8c-6427-4e8f-a805-2035365f4d43'
+        )
+        self.assertEqual(
+            port.extra['project_id'],
+            'abcdec85bee34bb0a44ab8255eb36abc'
+        )
+        self.assertEqual(
+            port.extra['tenant_id'],
+            'abcdec85bee34bb0a44ab8255eb36abc'
+        )
+        self.assertEqual(port.extra['admin_state_up'], True)
+        self.assertEqual(port.extra['name'], 'Some port name')
+        self.assertEqual(port.extra['description'], 'Some port description')
+
+    def test_ex_get_port(self):
+        port = self.driver.ex_get_port('126da55e-cfcb-41c8-ae39-a26cb8a7e723')
+
+        self.assertEqual(port.id, '126da55e-cfcb-41c8-ae39-a26cb8a7e723')
+        self.assertEqual(port.state, OpenStack_2_PortInterfaceState.BUILD)
+        self.assertEqual(port.created, '2018-07-04T14:38:18Z')
+        self.assertEqual(
+            port.extra['network_id'],
+            '123c8a8c-6427-4e8f-a805-2035365f4d43'
+        )
+        self.assertEqual(
+            port.extra['project_id'],
+            'abcdec85bee34bb0a44ab8255eb36abc'
+        )
+        self.assertEqual(
+            port.extra['tenant_id'],
+            'abcdec85bee34bb0a44ab8255eb36abc'
+        )
+        self.assertEqual(port.extra['name'], 'Some port name')
+
+    def test_ex_delete_port(self):
+        ports = self.driver.ex_list_ports()
+        port = ports[0]
+
+        ret = self.driver.ex_delete_port(port)
+
+        self.assertTrue(ret)
+
+    def test_ex_update_port(self):
+        port = self.driver.ex_get_port('126da55e-cfcb-41c8-ae39-a26cb8a7e723')
+        ret = self.driver.ex_update_port(port, port_security_enabled=False)
+        self.assertEqual(ret.extra['name'], 'Some port name')
+
+    def test_detach_port_interface(self):
+        node = Node(id='1c01300f-ef97-4937-8f03-ac676d6234be', name=None,
+                    state=None, public_ips=None, private_ips=None,
+                    driver=self.driver)
+        ports = self.driver.ex_list_ports()
+        port = ports[0]
+
+        ret = self.driver.ex_detach_port_interface(node, port)
+
+        self.assertTrue(ret)
+
+    def test_attach_port_interface(self):
+        node = Node(id='1c01300f-ef97-4937-8f03-ac676d6234be', name=None,
+                    state=None, public_ips=None, private_ips=None,
+                    driver=self.driver)
+        ports = self.driver.ex_list_ports()
+        port = ports[0]
+
+        ret = self.driver.ex_attach_port_interface(node, port)
+
+        self.assertTrue(ret)
+
+    def test_list_volumes(self):
+        volumes = self.driver.list_volumes()
+        self.assertEqual(len(volumes), 2)
+        volume = volumes[0]
+
+        self.assertEqual('6edbc2f4-1507-44f8-ac0d-eed1d2608d38', volume.id)
+        self.assertEqual('test-volume-attachments', volume.name)
+        self.assertEqual(StorageVolumeState.INUSE, volume.state)
+        self.assertEqual(2, volume.size)
+        self.assertEqual(volume.extra, {
+            'description': '',
+            'attachments': [{
+                "attachment_id": "3b4db356-253d-4fab-bfa0-e3626c0b8405",
+                "id": '6edbc2f4-1507-44f8-ac0d-eed1d2608d38',
+                "device": "/dev/vdb",
+                "server_id": "f4fda93b-06e0-4743-8117-bc8bcecd651b",
+                "volume_id": "6edbc2f4-1507-44f8-ac0d-eed1d2608d38",
+            }],
+            'snapshot_id': None,
+            'state': 'in-use',
+            'location': 'nova',
+            'volume_type': 'lvmdriver-1',
+            'metadata': {},
+            'created_at': '2013-06-24T11:20:13.000000'
+        })
+
+        # also test that unknown state resolves to StorageVolumeState.UNKNOWN
+        volume = volumes[1]
+        self.assertEqual('cfcec3bc-b736-4db5-9535-4c24112691b5', volume.id)
+        self.assertEqual('test_volume', volume.name)
+        self.assertEqual(50, volume.size)
+        self.assertEqual(StorageVolumeState.UNKNOWN, volume.state)
+        self.assertEqual(volume.extra, {
+            'description': 'some description',
+            'attachments': [],
+            'snapshot_id': '01f48111-7866-4cd2-986a-e92683c4a363',
+            'state': 'some-unknown-state',
+            'location': 'nova',
+            'volume_type': None,
+            'metadata': {},
+            'created_at': '2013-06-21T12:39:02.000000',
+        })
+
+    def test_create_volume_passes_location_to_request_only_if_not_none(self):
+        with patch.object(self.driver.volumev2_connection, 'request') as mock_request:
+            self.driver.create_volume(1, 'test', location='mylocation')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertEqual(kwargs["data"]["volume"]["availability_zone"], "mylocation")
+
+    def test_create_volume_does_not_pass_location_to_request_if_none(self):
+        with patch.object(self.driver.volumev2_connection, 'request') as mock_request:
+            self.driver.create_volume(1, 'test')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertFalse("availability_zone" in kwargs["data"]["volume"])
+
+    def test_create_volume_passes_volume_type_to_request_only_if_not_none(self):
+        with patch.object(self.driver.volumev2_connection, 'request') as mock_request:
+            self.driver.create_volume(1, 'test', ex_volume_type='myvolumetype')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertEqual(kwargs["data"]["volume"]["volume_type"], "myvolumetype")
+
+    def test_create_volume_does_not_pass_volume_type_to_request_if_none(self):
+        with patch.object(self.driver.volumev2_connection, 'request') as mock_request:
+            self.driver.create_volume(1, 'test')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertFalse("volume_type" in kwargs["data"]["volume"])
+
+    def test_create_volume_passes_image_ref_to_request_only_if_not_none(self):
+        with patch.object(self.driver.volumev2_connection, 'request') as mock_request:
+            self.driver.create_volume(
+                1, 'test', ex_image_ref='353c4bd2-b28f-4857-9b7b-808db4397d03')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertEqual(
+                kwargs["data"]["volume"]["imageRef"],
+                "353c4bd2-b28f-4857-9b7b-808db4397d03")
+
+    def test_create_volume_does_not_pass_image_ref_to_request_if_none(self):
+        with patch.object(self.driver.volumev2_connection, 'request') as mock_request:
+            self.driver.create_volume(1, 'test')
+            name, args, kwargs = mock_request.mock_calls[0]
+            self.assertFalse("imageRef" in kwargs["data"]["volume"])
+
+    def test_ex_create_snapshot_does_not_post_optional_parameters_if_none(self):
+        volume = self.driver.list_volumes()[0]
+        with patch.object(self.driver, '_to_snapshot'):
+            with patch.object(self.driver.volumev2_connection, 'request') as mock_request:
+                self.driver.create_volume_snapshot(volume,
+                                                   name=None,
+                                                   ex_description=None,
+                                                   ex_force=True)
+
+        name, args, kwargs = mock_request.mock_calls[0]
+        self.assertFalse("display_name" in kwargs["data"]["snapshot"])
+        self.assertFalse("display_description" in kwargs["data"]["snapshot"])
+
+    def test_ex_list_routers(self):
+        routers = self.driver.ex_list_routers()
+        router = routers[0]
+
+        self.assertEqual(len(routers), 2)
+        self.assertEqual(router.name, 'router2')
+        self.assertEqual(router.status, 'ACTIVE')
+        self.assertEqual(router.extra['routes'], [{'destination': '179.24.1.0/24',
+                                                   'nexthop': '172.24.3.99'}])
+
+    def test_ex_create_router(self):
+        router = self.driver.ex_create_router('router1', admin_state_up = True)
+
+        self.assertEqual(router.name, 'router1')
+
+    def test_ex_delete_router(self):
+        router = self.driver.ex_list_routers()[1]
+        self.assertTrue(self.driver.ex_delete_router(router=router))
+
+    def test_manage_router_interfaces(self):
+        router = self.driver.ex_list_routers()[1]
+        port = self.driver.ex_list_ports()[0]
+        subnet = self.driver.ex_list_subnets()[0]
+        self.assertTrue(self.driver.ex_add_router_port(router, port))
+        self.assertTrue(self.driver.ex_del_router_port(router, port))
+        self.assertTrue(self.driver.ex_add_router_subnet(router, subnet))
+        self.assertTrue(self.driver.ex_del_router_subnet(router, subnet))
+
+    def test_detach_volume(self):
+        node = self.driver.list_nodes()[0]
+        volume = self.driver.ex_get_volume(
+            'abc6a3a1-c4ce-40f6-9b9f-07a61508938d')
+        self.assertEqual(
+            self.driver.attach_volume(node, volume, '/dev/sdb'), True)
+        self.assertEqual(self.driver.detach_volume(volume), True)
+
+    def test_ex_remove_security_group_from_node(self):
+        security_group = OpenStackSecurityGroup("sgid", None, "sgname", "", self.driver)
+        node = Node("1000", "node", None, [], [], self.driver)
+        ret = self.driver.ex_remove_security_group_from_node(security_group, node)
+        self.assertTrue(ret)
+
+    def test_force_net_url(self):
+        d = OpenStack_2_NodeDriver(
+            'user', 'correct_password',
+            ex_force_auth_version='2.0_password',
+            ex_force_auth_url='http://x.y.z.y:5000',
+            ex_force_network_url='http://network.com:9696',
+            ex_tenant_name='admin')
+        self.assertEqual(d._ex_force_base_url, None)
+
+    def test_ex_get_quota_set(self):
+        quota_set = self.driver.ex_get_quota_set("tenant_id")
+        self.assertEqual(quota_set.cores.limit, 20)
+        self.assertEqual(quota_set.cores.in_use, 1)
+        self.assertEqual(quota_set.cores.reserved, 0)
+
+    def test_ex_get_network_quota(self):
+        quota_set = self.driver.ex_get_network_quotas("tenant_id")
+        self.assertEqual(quota_set.floatingip.limit, 2)
+        self.assertEqual(quota_set.floatingip.in_use, 1)
+        self.assertEqual(quota_set.floatingip.reserved, 0)
 
 class OpenStack_1_1_FactoryMethodTests(OpenStack_1_1_Tests):
     should_list_locations = False
@@ -1514,7 +2164,7 @@ class OpenStack_1_1_FactoryMethodTests(OpenStack_1_1_Tests):
     driver_kwargs = {'ex_force_auth_version': '2.0'}
 
 
-class OpenStack_1_1_MockHttp(MockHttpTestCase):
+class OpenStack_1_1_MockHttp(MockHttp, unittest.TestCase):
     fixtures = ComputeFileFixtures('openstack_v1.1')
     auth_fixtures = OpenStackFixtures()
     json_content_headers = {'content-type': 'application/json; charset=UTF-8'}
@@ -1537,6 +2187,9 @@ class OpenStack_1_1_MockHttp(MockHttpTestCase):
     def _v1_1_slug_servers_detail_ERROR_STATE_NO_IMAGE_ID(self, method, url, body, headers):
         body = self.fixtures.load('_servers_detail_ERROR_STATE.json')
         return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_servers_does_not_exist(self, *args, **kwargs):
+        return httplib.NOT_FOUND, None, {}, httplib.responses[httplib.NOT_FOUND]
 
     def _v1_1_slug_flavors_detail(self, method, url, body, headers):
         body = self.fixtures.load('_flavors_detail.json')
@@ -1647,6 +2300,62 @@ class OpenStack_1_1_MockHttp(MockHttpTestCase):
         else:
             raise NotImplementedError()
 
+    def _v2_1337_v2_images_f24a3c1b_d52a_4116_91da_25b3eee8f55e(self, method, url, body, headers):
+        if method == "GET" or method == "PATCH":
+            body = self.fixtures.load('_images_f24a3c1b-d52a-4116-91da-25b3eee8f55e.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_v2_images_d9a9cd9a_278a_444c_90a6_d24b8c688a63_members(self, method, url, body, headers):
+        if method == "GET":
+            body = self.fixtures.load('_images_d9a9cd9a_278a_444c_90a6_d24b8c688a63_members.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_v2_images_9af1a54e_a1b2_4df8_b747_4bec97abc799_members(self, method, url, body, headers):
+        if method == "POST":
+            body = self.fixtures.load('_images_9af1a54e_a1b2_4df8_b747_4bec97abc799_members.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_v2_images_8af1a54e_a1b2_4df8_b747_4bec97abc799_members_e2151b1fe02d4a8a2d1f5fc331522c0a(self, method, url, body, headers):
+        if method == "PUT":
+            body = self.fixtures.load('_images_8af1a54e_a1b2_4df8_b747_4bec97abc799_members.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_v2_images_d9a9cd9a_278a_444c_90a6_d24b8c688a63_members_016926dff12345e8b10329f24c99745b(self, method, url, body, headers):
+        if method == "GET":
+            body = self.fixtures.load(
+                '_images_d9a9cd9a_278a_444c_90a6_d24b8c688a63_members_016926dff12345e8b10329f24c99745b.json'
+            )
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_v2_images(self, method, url, body, headers):
+        if method == "GET":
+            # 2nd (and last) page of images
+            if 'marker=e7a40226-3523-4f0f-87d8-d8dc91bbf4a3' in url:
+                body = self.fixtures.load('_images_v2_page2.json')
+            else:
+                # first page of images
+                body = self.fixtures.load('_images_v2.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_v2_images_invalid_next(self, method, url, body, headers):
+        if method == "GET":
+            body = self.fixtures.load('_images_v2_invalid_next.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
     def _v1_1_slug_images_26365521_8c62_11f9_2c33_283d153ecc3a(self, method, url, body, headers):
         if method == "DELETE":
             return (httplib.NO_CONTENT, "", {}, httplib.responses[httplib.NO_CONTENT])
@@ -1658,6 +2367,62 @@ class OpenStack_1_1_MockHttp(MockHttpTestCase):
             body = self.fixtures.load(
                 '_images_4949f9ee_2421_4c81_8b49_13119446008b.json')
             return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_v2_images_4949f9ee_2421_4c81_8b49_13119446008b(self, method, url, body, headers):
+        if method == "GET":
+            body = self.fixtures.load(
+                '_images_f24a3c1b-d52a-4116-91da-25b3eee8f55d.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_v2_0_ports(self, method, url, body, headers):
+        if method == "GET":
+            body = self.fixtures.load('_ports_v2.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        elif method == "POST":
+            body = self.fixtures.load('_port_v2.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_v2_0_ports_126da55e_cfcb_41c8_ae39_a26cb8a7e723(self, method, url, body, headers):
+        if method == "DELETE":
+            return (httplib.NO_CONTENT, "", {}, httplib.responses[httplib.NO_CONTENT])
+        elif method == "GET":
+            body = self.fixtures.load('_port_v2.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        elif method == "PUT":
+            if body:
+                body = self.fixtures.load('_port_v2.json')
+                return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+            else:
+                return (httplib.INTERNAL_SERVER_ERROR, "", {}, httplib.responses[httplib.INTERNAL_SERVER_ERROR])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_servers_12065_os_volume_attachments_DEVICE_AUTO(self, method, url, body, headers):
+        # test_attach_volume_device_auto
+        if method == "POST":
+            if 'rackspace' not in self.__class__.__name__.lower():
+                body = json.loads(body)
+                self.assertEqual(body['volumeAttachment']['device'], None)
+
+            return (httplib.NO_CONTENT, "", {}, httplib.responses[httplib.NO_CONTENT])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_servers_1c01300f_ef97_4937_8f03_ac676d6234be_os_interface_126da55e_cfcb_41c8_ae39_a26cb8a7e723(self, method, url, body, headers):
+        if method == "DELETE":
+            return (httplib.NO_CONTENT, "", {}, httplib.responses[httplib.NO_CONTENT])
+        else:
+            raise NotImplementedError()
+
+    def _v2_1337_servers_1c01300f_ef97_4937_8f03_ac676d6234be_os_interface(self, method, url, body, headers):
+        if method == "POST":
+            return (httplib.NO_CONTENT, "", {}, httplib.responses[httplib.NO_CONTENT])
         else:
             raise NotImplementedError()
 
@@ -1759,6 +2524,10 @@ class OpenStack_1_1_MockHttp(MockHttpTestCase):
 
     def _v1_1_slug_servers_12065_os_volume_attachments(self, method, url, body, headers):
         if method == "POST":
+            if 'rackspace' not in self.__class__.__name__.lower():
+                body = json.loads(body)
+                self.assertEqual(body['volumeAttachment']['device'], '/dev/sdb')
+
             body = self.fixtures.load(
                 '_servers_12065_os_volume_attachments.json')
         else:
@@ -1806,8 +2575,6 @@ class OpenStack_1_1_MockHttp(MockHttpTestCase):
         else:
             raise NotImplementedError()
 
-        return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
-
     def _v1_1_slug_os_networks(self, method, url, body, headers):
         if method == 'GET':
             body = self.fixtures.load('_os_networks.json')
@@ -1830,16 +2597,12 @@ class OpenStack_1_1_MockHttp(MockHttpTestCase):
         else:
             raise NotImplementedError()
 
-        return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
-
     def _v1_1_slug_servers_12063_action(self, method, url, body, headers):
         if method == 'POST':
             body = self.fixtures.load('_servers_unpause.json')
             return (httplib.ACCEPTED, body, self.json_content_headers, httplib.responses[httplib.OK])
         else:
             raise NotImplementedError()
-
-        return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
 
     def _v1_1_slug_servers_12086_action(self, method, url, body, headers):
         if method == 'POST':
@@ -1858,6 +2621,30 @@ class OpenStack_1_1_MockHttp(MockHttpTestCase):
 
         return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
 
+    def _v1_1_slug_os_snapshots_3fbbcccf_d058_4502_8844_6feeffdf4cb5(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_os_snapshot.json')
+            status_code = httplib.OK
+        elif method == 'DELETE':
+            body = ''
+            status_code = httplib.NO_CONTENT
+        else:
+            raise NotImplementedError()
+
+        return (status_code, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v1_1_slug_os_snapshots_3fbbcccf_d058_4502_8844_6feeffdf4cb5_RACKSPACE(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_os_snapshot_rackspace.json')
+            status_code = httplib.OK
+        elif method == 'DELETE':
+            body = ''
+            status_code = httplib.NO_CONTENT
+        else:
+            raise NotImplementedError()
+
+        return (status_code, body, self.json_content_headers, httplib.responses[httplib.OK])
+
     def _v1_1_slug_os_snapshots_RACKSPACE(self, method, url, body, headers):
         if method == 'GET':
             body = self.fixtures.load('_os_snapshots_rackspace.json')
@@ -1868,25 +2655,186 @@ class OpenStack_1_1_MockHttp(MockHttpTestCase):
 
         return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
 
-    def _v1_1_slug_os_snapshots_3fbbcccf_d058_4502_8844_6feeffdf4cb5(self, method, url, body, headers):
+    def _v2_1337_v2_0_networks(self, method, url, body, headers):
+        if method == 'GET':
+            if "router:external=True" in url:
+                body = self.fixtures.load('_v2_0__networks_public.json')
+                return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+            else:
+                body = self.fixtures.load('_v2_0__networks.json')
+                return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        elif method == 'POST':
+            body = self.fixtures.load('_v2_0__networks_POST.json')
+            return (httplib.ACCEPTED, body, self.json_content_headers, httplib.responses[httplib.OK])
+        raise NotImplementedError()
+
+    def _v2_1337_v2_0_networks_cc2dad14_827a_feea_416b_f13e50511a0a(self, method, url, body, headers):
+        if method == "GET":
+            body = self.fixtures.load('_v2_0__network.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        raise NotImplementedError()
+
+    def _v2_1337_v2_0_networks_d32019d3_bc6e_4319_9c1d_6722fc136a22(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__networks_POST.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        elif method == 'DELETE':
+            body = ''
+            return (httplib.NO_CONTENT, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_subnets_08eae331_0402_425a_923c_34f7cfe39c1b(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__subnet.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
         if method == 'DELETE':
             body = ''
-            status_code = httplib.NO_CONTENT
+            return (httplib.NO_CONTENT, body, self.json_content_headers, httplib.responses[httplib.OK])
+        elif method == 'PUT':
+            body = self.fixtures.load('_v2_0__subnet.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_subnets(self, method, url, body, headers):
+        if method == 'POST':
+            body = self.fixtures.load('_v2_0__subnet.json')
+            return (httplib.CREATED, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            body = self.fixtures.load('_v2_0__subnets.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_volumes_detail(self, method, url, body, headers):
+        body = self.fixtures.load('_v2_0__volumes.json')
+        return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_volumes(self, method, url, body, headers):
+        if method == 'POST':
+            body = self.fixtures.load('_v2_0__volume.json')
+            return (httplib.CREATED, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_volumes_cd76a3a1_c4ce_40f6_9b9f_07a61508938d(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__volume.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        if method == 'DELETE':
+            body = ''
+            return (httplib.NO_CONTENT, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_volumes_abc6a3a1_c4ce_40f6_9b9f_07a61508938d(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__volume_abc6a3a1_c4ce_40f6_9b9f_07a61508938d.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        if method == 'DELETE':
+            body = ''
+            return (httplib.NO_CONTENT, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_snapshots_detail(self, method, url, body, headers):
+        if ('unit_test=paginate' in url and 'marker' not in url) or \
+                'unit_test=pagination_loop' in url:
+            body = self.fixtures.load('_v2_0__snapshots_paginate_start.json')
+        else:
+            body = self.fixtures.load('_v2_0__snapshots.json')
+        return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_snapshots(self, method, url, body, headers):
+        if method == 'POST':
+            body = self.fixtures.load('_v2_0__snapshot.json')
+            return (httplib.CREATED, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_snapshots_3fbbcccf_d058_4502_8844_6feeffdf4cb5(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__snapshot.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        if method == 'DELETE':
+            body = ''
+            return (httplib.NO_CONTENT, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_security_groups(self, method, url, body, headers):
+        if method == 'POST':
+            body = self.fixtures.load('_v2_0__security_group.json')
+            return (httplib.CREATED, body, self.json_content_headers, httplib.responses[httplib.OK])
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__security_groups.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_security_groups_6(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__security_group.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        if method == 'DELETE':
+            body = ''
+            return (httplib.NO_CONTENT, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_security_group_rules(self, method, url, body, headers):
+        if method == 'POST':
+            body = self.fixtures.load('_v2_0__security_group_rule.json')
+            return (httplib.CREATED, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_security_group_rules_2(self, method, url, body, headers):
+        if method == 'DELETE':
+            body = ''
+            return (httplib.NO_CONTENT, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_floatingips(self, method, url, body, headers):
+        if method == 'POST':
+            body = self.fixtures.load('_v2_0__floatingip.json')
+            return (httplib.CREATED, body, self.json_content_headers, httplib.responses[httplib.OK])
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__floatingips.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_floatingips_foo_bar_id(self, method, url, body, headers):
+        if method == 'DELETE':
+            body = ''
+            return (httplib.NO_CONTENT, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_routers_f8a44de0_fc8e_45df_93c7_f79bf3b01c95(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__router.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+        if method == 'DELETE':
+            body = ''
+            return (httplib.NO_CONTENT, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_routers(self, method, url, body, headers):
+        if method == 'POST':
+            body = self.fixtures.load('_v2_0__router.json')
+            return (httplib.CREATED, body, self.json_content_headers, httplib.responses[httplib.OK])
+        else:
+            body = self.fixtures.load('_v2_0__routers.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_routers_f8a44de0_fc8e_45df_93c7_f79bf3b01c95_add_router_interface(self, method, url,
+                                                                                        body, headers):
+        if method == 'PUT':
+            body = self.fixtures.load('_v2_0__router_interface.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_v2_0_routers_f8a44de0_fc8e_45df_93c7_f79bf3b01c95_remove_router_interface(self, method, url,
+                                                                                           body, headers):
+        if method == 'PUT':
+            body = self.fixtures.load('_v2_0__router_interface.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_os_quota_sets_tenant_id_detail(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__quota_set.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
+
+    def _v2_1337_flavors_7_os_extra_specs(self, method, url, body, headers):
+        if method == "GET":
+            body = self.fixtures.load('_flavor_extra_specs.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
         else:
             raise NotImplementedError()
 
-        return (status_code, body, self.json_content_headers, httplib.responses[httplib.OK])
+    def _v2_1337_servers_1000_action(self, method, url, body, headers):
+        if method != 'POST' or body != '{"removeSecurityGroup": {"name": "sgname"}}':
+            raise NotImplementedError(body)
+        return httplib.ACCEPTED, None, {}, httplib.responses[httplib.ACCEPTED]
 
-    def _v1_1_slug_os_snapshots_3fbbcccf_d058_4502_8844_6feeffdf4cb5_RACKSPACE(self, method, url, body, headers):
-        if method == 'DELETE':
-            body = ''
-            status_code = httplib.NO_CONTENT
-        else:
-            raise NotImplementedError()
-
-        return (status_code, body, self.json_content_headers, httplib.responses[httplib.OK])
-
-
+    def _v2_1337_v2_0_quotas_tenant_id_details_json(self, method, url, body, headers):
+        if method == 'GET':
+            body = self.fixtures.load('_v2_0__network_quota.json')
+            return (httplib.OK, body, self.json_content_headers, httplib.responses[httplib.OK])
 # This exists because the nova compute url in devstack has v2 in there but the v1.1 fixtures
 # work fine.
 
@@ -1912,8 +2860,7 @@ class OpenStack_1_1_Auth_2_0_Tests(OpenStack_1_1_Tests):
     driver_kwargs = {'ex_force_auth_version': '2.0'}
 
     def setUp(self):
-        self.driver_klass.connectionCls.conn_classes = \
-            (OpenStack_2_0_MockHttp, OpenStack_2_0_MockHttp)
+        self.driver_klass.connectionCls.conn_class = OpenStack_2_0_MockHttp
         self.driver_klass.connectionCls.auth_url = "https://auth.api.example.com"
         OpenStackMockHttp.type = None
         OpenStack_1_1_MockHttp.type = None

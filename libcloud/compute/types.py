@@ -16,6 +16,7 @@
 Base types used by other parts of libcloud
 """
 
+from libcloud.common.types import Type
 from libcloud.common.types import LibcloudError, MalformedResponseError
 from libcloud.common.types import InvalidCredsError, InvalidCredsException
 
@@ -35,26 +36,6 @@ __all__ = [
 ]
 
 
-class Type(object):
-    @classmethod
-    def tostring(cls, value):
-        """Return the string representation of the state object attribute
-        :param str value: the state object to turn into string
-        :return: the uppercase string that represents the state object
-        :rtype: str
-        """
-        return value.upper()
-
-    @classmethod
-    def fromstring(cls, value):
-        """Return the state object attribute that matches the string
-        :param str value: the string to look up
-        :return: the state object attribute that matches the string
-        :rtype: str
-        """
-        return getattr(cls, value.upper(), None)
-
-
 class Provider(Type):
     """
     Defines for each of the supported providers
@@ -66,9 +47,11 @@ class Provider(Type):
     :cvar ABIQUO: Abiquo driver
     :cvar ALIYUN_ECS: Aliyun ECS driver.
     :cvar AURORACOMPUTE: Aurora Compute driver.
-    :cvar AZURE: Azure driver.
+    :cvar AZURE: Azure (classic) driver.
+    :cvar AZURE_ARM: Azure Resource Manager (modern) driver.
     :cvar BLUEBOX: Bluebox
     :cvar CLOUDSIGMA: CloudSigma
+    :cvar CLOUDSCALE: cloudscale.ch
     :cvar CLOUDSTACK: CloudStack
     :cvar DIMENSIONDATA: Dimension Data Cloud
     :cvar EC2: Amazon AWS.
@@ -77,53 +60,64 @@ class Provider(Type):
     :cvar EXOSCALE: Exoscale driver.
     :cvar GCE: Google Compute Engine
     :cvar GOGRID: GoGrid
+    :cvar GRIDSCALE: gridscale
     :cvar GRIDSPOT: Gridspot driver
     :cvar IBM: IBM Developer Cloud
     :cvar IKOULA: Ikoula driver.
     :cvar JOYENT: Joyent driver
+    :cvar KAMATERA: Kamatera driver
     :cvar KTUCLOUD: kt ucloud driver
+    :cvar KUBEVIRT: kubevirt driver
     :cvar LIBVIRT: Libvirt driver
     :cvar LINODE: Linode.com
     :cvar NEPHOSCALE: NephoScale driver
     :cvar NIMBUS: Nimbus
     :cvar NINEFOLD: Ninefold
+    :cvar NTTC-CIS: NTT Communications CIS
     :cvar OPENNEBULA: OpenNebula.org
     :cvar OPSOURCE: Opsource Cloud
     :cvar OUTSCALE_INC: Outscale INC driver.
     :cvar OUTSCALE_SAS: Outscale SAS driver.
+    :cvar OUTSCALE_SDK: Outscale SDK driver.
     :cvar PROFIT_BRICKS: ProfitBricks driver.
     :cvar RACKSPACE: Rackspace next-gen OpenStack based Cloud Servers
     :cvar RACKSPACE_FIRST_GEN: Rackspace First Gen Cloud Servers
     :cvar RIMUHOSTING: RimuHosting.com
     :cvar TERREMARK: Terremark
+    :cvar UPCLOUD: UpCloud
     :cvar VCL: VCL driver
     :cvar VCLOUD: vmware vCloud
     :cvar VPSNET: VPS.net
+    :cvar VSphere: VSphere driver.
     :cvar VULTR: vultr driver.
     """
+    AZURE = 'azure'
+    AZURE_ARM = 'azure_arm'
     DUMMY = 'dummy'
     ABIQUO = 'abiquo'
     ALIYUN_ECS = 'aliyun_ecs'
     AURORACOMPUTE = 'aurora_compute'
-    AZURE = 'azure'
     BLUEBOX = 'bluebox'
     BRIGHTBOX = 'brightbox'
     BSNL = 'bsnl'
     CISCOCCS = 'ciscoccs'
     CLOUDFRAMES = 'cloudframes'
     CLOUDSIGMA = 'cloudsigma'
+    CLOUDSCALE = 'cloudscale'
     CLOUDSTACK = 'cloudstack'
-    CLOUDWATT = 'cloudwatt'
     DIGITAL_OCEAN = 'digitalocean'
     DIMENSIONDATA = 'dimensiondata'
     EC2 = 'ec2'
     ECP = 'ecp'
     ELASTICHOSTS = 'elastichosts'
+    EQUINIXMETAL = 'equinixmetal'
     EUCALYPTUS = 'eucalyptus'
     EXOSCALE = 'exoscale'
     GANDI = 'gandi'
     GCE = 'gce'
+    GIG_G8 = 'gig_g8'
     GOGRID = 'gogrid'
+    GRIDSCALE = 'gridscale'
     GRIDSPOT = 'gridspot'
     HOSTVIRTUAL = 'hostvirtual'
     IBM = 'ibm'
@@ -131,29 +125,37 @@ class Provider(Type):
     INDOSAT = 'indosat'
     INTERNETSOLUTIONS = 'internetsolutions'
     JOYENT = 'joyent'
+    KAMATERA = 'kamatera'
     KTUCLOUD = 'ktucloud'
+    KUBEVIRT = 'kubevirt'
     LIBVIRT = 'libvirt'
     LINODE = 'linode'
+    MAXIHOST = 'maxihost'
     MEDONE = 'medone'
     NEPHOSCALE = 'nephoscale'
     NIMBUS = 'nimbus'
     NINEFOLD = 'ninefold'
     NTTA = 'ntta'
+    NTTCIS = 'nttcis'
+    ONEANDONE = 'oneandone'
     OPENNEBULA = 'opennebula'
     OPENSTACK = 'openstack'
     OPSOURCE = 'opsource'
     OUTSCALE_INC = 'outscale_inc'
     OUTSCALE_SAS = 'outscale_sas'
-    PACKET = 'packet'
+    OUTSCALE = 'outscale'
+    OVH = 'ovh'
     PROFIT_BRICKS = 'profitbricks'
     RACKSPACE = 'rackspace'
     RACKSPACE_FIRST_GEN = 'rackspace_first_gen'
     RIMUHOSTING = 'rimuhosting'
     RUNABOVE = 'runabove'
+    SCALEWAY = 'scaleway'
     SERVERLOVE = 'serverlove'
     SKALICLOUD = 'skalicloud'
     SOFTLAYER = 'softlayer'
     TERREMARK = 'terremark'
+    UPCLOUD = 'upcloud'
     VCL = 'vcl'
     VCLOUD = 'vcloud'
     VOXEL = 'voxel'
@@ -175,8 +177,10 @@ class Provider(Type):
     RACKSPACE_NOVA_ORD = 'rackspace_nova_ord'
 
     EC2_US_EAST = 'ec2_us_east'
+    EC2_US_EAST_OHIO = 'ec2_us_east_ohio'
     EC2_EU = 'ec2_eu_west'  # deprecated name
     EC2_EU_WEST = 'ec2_eu_west'
+    EC2_EU_WEST2 = 'ec2_eu_west_london'
     EC2_US_WEST = 'ec2_us_west'
     EC2_AP_SOUTHEAST = 'ec2_ap_southeast'
     EC2_AP_NORTHEAST = 'ec2_ap_northeast'
@@ -185,6 +189,7 @@ class Provider(Type):
     EC2_US_WEST_OREGON = 'ec2_us_west_oregon'
     EC2_SA_EAST = 'ec2_sa_east'
     EC2_AP_SOUTHEAST2 = 'ec2_ap_southeast_2'
+    EC2_CA_CENTRAL1 = 'ec2_ca_central_1'
 
     ELASTICHOSTS_UK1 = 'elastichosts_uk1'
     ELASTICHOSTS_UK2 = 'elastichosts_uk2'
@@ -217,8 +222,10 @@ OLD_CONSTANT_TO_NEW_MAPPING = {
 
     # AWS
     Provider.EC2_US_EAST: Provider.EC2,
+    Provider.EC2_US_EAST_OHIO: Provider.EC2,
     Provider.EC2_EU: Provider.EC2,
     Provider.EC2_EU_WEST: Provider.EC2,
+    Provider.EC2_EU_WEST2: Provider.EC2,
     Provider.EC2_US_WEST: Provider.EC2,
     Provider.EC2_AP_SOUTHEAST: Provider.EC2,
     Provider.EC2_AP_SOUTHEAST2: Provider.EC2,
@@ -227,7 +234,7 @@ OLD_CONSTANT_TO_NEW_MAPPING = {
     Provider.EC2_AP_NORTHEAST2: Provider.EC2,
     Provider.EC2_US_WEST_OREGON: Provider.EC2,
     Provider.EC2_SA_EAST: Provider.EC2,
-    Provider.EC2_AP_SOUTHEAST: Provider.EC2,
+    Provider.EC2_CA_CENTRAL1: Provider.EC2,
 
     # ElasticHosts
     Provider.ELASTICHOSTS_UK1: Provider.ELASTICHOSTS,
@@ -271,6 +278,9 @@ class NodeState(Type):
     ERROR = 'error'
     PAUSED = 'paused'
     RECONFIGURING = 'reconfiguring'
+    MIGRATING = 'migrating'
+    NORMAL = 'normal'
+    UPDATING = 'updating'
 
 
 class StorageVolumeState(Type):
@@ -286,6 +296,8 @@ class StorageVolumeState(Type):
     BACKUP = 'backup'
     ATTACHING = 'attaching'
     UNKNOWN = 'unknown'
+    MIGRATING = 'migrating'
+    UPDATING = 'updating'
 
 
 class VolumeSnapshotState(Type):
@@ -298,6 +310,16 @@ class VolumeSnapshotState(Type):
     DELETING = 'deleting'
     RESTORING = 'restoring'
     UNKNOWN = 'unknown'
+    UPDATING = 'updating'
+
+
+class NodeImageMemberState(Type):
+    """
+    Standard states of VolumeSnapshots
+    """
+    ACCEPTED = 'accepted'
+    PENDING = 'pending'
+    REJECTED = 'rejected'
 
 
 class Architecture(object):
@@ -318,9 +340,11 @@ class DeploymentError(LibcloudError):
     :ivar node: :class:`Node` on which this exception happened, you might want
                 to call :func:`Node.destroy`
     """
+
     def __init__(self, node, original_exception=None, driver=None):
         self.node = node
         self.value = original_exception
+        self.original_error = original_exception
         self.driver = driver
 
     def __str__(self):
@@ -328,7 +352,7 @@ class DeploymentError(LibcloudError):
 
     def __repr__(self):
         return (('<DeploymentError: node=%s, error=%s, driver=%s>'
-                % (self.node.id, str(self.value), str(self.driver))))
+                 % (self.node.id, str(self.value), str(self.driver))))
 
 
 class KeyPairError(LibcloudError):

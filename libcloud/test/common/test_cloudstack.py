@@ -29,7 +29,7 @@ from libcloud.utils.py3 import parse_qsl
 from libcloud.common.cloudstack import CloudStackConnection
 from libcloud.common.types import MalformedResponseError
 
-from libcloud.test import MockHttpTestCase
+from libcloud.test import MockHttp
 
 
 async_delay = 0
@@ -47,7 +47,7 @@ class CloudStackMockDriver(object):
 
 class CloudStackCommonTest(unittest.TestCase):
     def setUp(self):
-        CloudStackConnection.conn_classes = (None, CloudStackMockHttp)
+        CloudStackConnection.conn_class = CloudStackMockHttp
         self.connection = CloudStackConnection('apikey', 'secret',
                                                host=CloudStackMockDriver.host)
         self.connection.poll_interval = 0.0
@@ -57,8 +57,7 @@ class CloudStackCommonTest(unittest.TestCase):
         self.driver.path = '/bad/response'
         try:
             self.connection._sync_request('fake')
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             self.assertTrue(isinstance(e, MalformedResponseError))
             return
         self.assertTrue(False)
@@ -76,8 +75,7 @@ class CloudStackCommonTest(unittest.TestCase):
         self.driver.path = '/async/fail'
         try:
             self.connection._async_request('fake')
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             self.assertEqual(CloudStackMockHttp.ERROR_TEXT, str(e))
             return
         self.assertFalse(True)
@@ -124,12 +122,12 @@ class CloudStackCommonTest(unittest.TestCase):
             self.assertEqual(connection._make_signature(params), b(case[1]))
 
 
-class CloudStackMockHttp(MockHttpTestCase):
+class CloudStackMockHttp(MockHttp, unittest.TestCase):
 
     ERROR_TEXT = 'ERROR TEXT'
 
     def _response(self, status, result, response):
-        return (status, json.dumps(result), result, response)
+        return (status, json.dumps(result), {}, response)
 
     def _check_request(self, url):
         url = urlparse.urlparse(url)

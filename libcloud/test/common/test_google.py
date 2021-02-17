@@ -40,9 +40,9 @@ from libcloud.test import MockHttp, LibcloudTestCase
 from libcloud.utils.py3 import httplib
 
 
-# Skip some tests if PyCrypto is unavailable
+# Skip some tests if cryptography is unavailable
 try:
-    from Crypto.Hash import SHA256
+    from cryptography.hazmat.primitives.hashes import SHA256
 except ImportError:
     SHA256 = None
 
@@ -60,8 +60,20 @@ GCE_PARAMS_JSON_KEY = ('email@developer.gserviceaccount.com', JSON_KEY)
 GCE_PARAMS_KEY = ('email@developer.gserviceaccount.com', KEY_STR)
 GCE_PARAMS_IA = ('client_id', 'client_secret')
 GCE_PARAMS_GCE = ('foo', 'bar')
-GCS_S3_PARAMS = ('GOOG0123456789ABCXYZ',  # GOOG + 16 alphanumeric chars
-                 '0102030405060708091011121314151617181920')  # 40 base64 chars
+# GOOG + 16 alphanumeric chars
+GCS_S3_PARAMS_20 = ('GOOG0123456789ABCXYZ',
+                    # 40 base64 chars
+                    '0102030405060708091011121314151617181920')
+# GOOG + 20 alphanumeric chars
+GCS_S3_PARAMS_24 = ('GOOGDF5OVRRGU4APFNSTVCXI',
+                    # 40 base64 chars
+                    '0102030405060708091011121314151617181920')
+# GOOG + 57 alphanumeric chars
+GCS_S3_PARAMS_61 = (
+    'GOOGDF5OVRRGU4APFNSTVCXIRRGU4AP56789ABCX56789ABCXRRGU4APFNSTV',
+    # 40 base64 chars
+    '0102030405060708091011121314151617181920'
+)
 
 STUB_UTCNOW = _utcnow()
 
@@ -154,8 +166,7 @@ class GoogleBaseAuthConnectionTest(GoogleTestCase):
     """
 
     def setUp(self):
-        GoogleBaseAuthConnection.conn_classes = (GoogleAuthMockHttp,
-                                                 GoogleAuthMockHttp)
+        GoogleBaseAuthConnection.conn_class = GoogleAuthMockHttp
         self.mock_scopes = ['foo', 'bar']
         kwargs = {'scopes': self.mock_scopes}
         self.conn = GoogleInstalledAppAuthConnection(*GCE_PARAMS,
@@ -191,8 +202,7 @@ class GoogleInstalledAppAuthConnectionTest(GoogleTestCase):
     """
 
     def setUp(self):
-        GoogleInstalledAppAuthConnection.conn_classes = (GoogleAuthMockHttp,
-                                                         GoogleAuthMockHttp)
+        GoogleInstalledAppAuthConnection.conn_class = GoogleAuthMockHttp
         self.mock_scopes = ['https://www.googleapis.com/auth/foo']
         kwargs = {'scopes': self.mock_scopes}
         self.conn = GoogleInstalledAppAuthConnection(*GCE_PARAMS,
@@ -223,16 +233,25 @@ class GoogleInstalledAppAuthConnectionTest(GoogleTestCase):
 class GoogleAuthTypeTest(GoogleTestCase):
 
     def test_guess(self):
-        self.assertEqual(GoogleAuthType.guess_type(GCE_PARAMS[0]),
-                         GoogleAuthType.SA)
         self.assertEqual(GoogleAuthType.guess_type(GCE_PARAMS_IA[0]),
                          GoogleAuthType.IA)
         with mock.patch.object(GoogleAuthType, '_is_gce', return_value=True):
+            # Since _is_gce currently depends on the environment, not on
+            # parameters, other auths should override GCE. It does not make
+            # sense for IA auth to happen on GCE, which is why it's left out.
+            self.assertEqual(GoogleAuthType.guess_type(GCE_PARAMS[0]),
+                             GoogleAuthType.SA)
+            self.assertEqual(
+                GoogleAuthType.guess_type(GCS_S3_PARAMS_20[0]),
+                GoogleAuthType.GCS_S3)
+            self.assertEqual(
+                GoogleAuthType.guess_type(GCS_S3_PARAMS_24[0]),
+                GoogleAuthType.GCS_S3)
+            self.assertEqual(
+                GoogleAuthType.guess_type(GCS_S3_PARAMS_61[0]),
+                GoogleAuthType.GCS_S3)
             self.assertEqual(GoogleAuthType.guess_type(GCE_PARAMS_GCE[0]),
                              GoogleAuthType.GCE)
-        self.assertEqual(
-            GoogleAuthType.guess_type(GCS_S3_PARAMS[0]),
-            GoogleAuthType.GCS_S3)
 
 
 class GoogleOAuth2CredentialTest(GoogleTestCase):
@@ -314,8 +333,7 @@ class GoogleBaseConnectionTest(GoogleTestCase):
     """
 
     def setUp(self):
-        GoogleBaseAuthConnection.conn_classes = (GoogleAuthMockHttp,
-                                                 GoogleAuthMockHttp)
+        GoogleBaseAuthConnection.conn_class = GoogleAuthMockHttp
         self.mock_scopes = ['https://www.googleapis.com/auth/foo']
         kwargs = {'scopes': self.mock_scopes,
                   'auth_type': GoogleAuthType.IA}

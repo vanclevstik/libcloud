@@ -17,6 +17,7 @@
 from __future__ import with_statement
 
 import os
+import codecs
 
 from libcloud.utils.py3 import PY3
 from libcloud.utils.py3 import u
@@ -27,6 +28,7 @@ FIXTURES_ROOT = {
     'storage': 'storage/fixtures',
     'loadbalancer': 'loadbalancer/fixtures',
     'dns': 'dns/fixtures',
+    'drs': 'drs/fixtures',
     'backup': 'backup/fixtures',
     'openstack': 'compute/fixtures/openstack',
     'container': 'container/fixtures'
@@ -43,13 +45,13 @@ class FileFixtures(object):
         path = os.path.join(self.root, file)
         if os.path.exists(path):
             if PY3:
-                kwargs = {'encoding': 'utf-8'}
+                with open(path, 'r', encoding='utf-8') as fh:
+                    content = fh.read()
+                return u(content)
             else:
-                kwargs = {}
-
-            with open(path, 'r', **kwargs) as fh:
-                content = fh.read()
-            return u(content)
+                with codecs.open(path, 'r', 'utf-8') as fh:
+                    content = fh.read()
+                return content
         else:
             raise IOError(path)
 
@@ -76,6 +78,12 @@ class LoadBalancerFileFixtures(FileFixtures):
 class DNSFileFixtures(FileFixtures):
     def __init__(self, sub_dir=''):
         super(DNSFileFixtures, self).__init__(fixtures_type='dns',
+                                              sub_dir=sub_dir)
+
+
+class DRSFileFixtures(FileFixtures):
+    def __init__(self, sub_dir=''):
+        super(DRSFileFixtures, self).__init__(fixtures_type='drs',
                                               sub_dir=sub_dir)
 
 

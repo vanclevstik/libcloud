@@ -1,3 +1,18 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import sys
 
 try:
@@ -8,6 +23,7 @@ except ImportError:
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import urlparse
 from libcloud.utils.py3 import parse_qsl
+from libcloud.utils.py3 import assertRaisesRegex
 
 from libcloud.loadbalancer.types import Provider
 from libcloud.loadbalancer.providers import get_driver
@@ -15,14 +31,13 @@ from libcloud.loadbalancer.base import LoadBalancer, Member, Algorithm
 from libcloud.loadbalancer.drivers.cloudstack import CloudStackLBDriver
 
 from libcloud.test import unittest
-from libcloud.test import MockHttpTestCase
+from libcloud.test import MockHttp
 from libcloud.test.file_fixtures import LoadBalancerFileFixtures
 
 
 class CloudStackLBTests(unittest.TestCase):
     def setUp(self):
-        CloudStackLBDriver.connectionCls.conn_classes = \
-            (None, CloudStackMockHttp)
+        CloudStackLBDriver.connectionCls.conn_class = CloudStackMockHttp
 
         CloudStackLBDriver.path = '/test/path'
         CloudStackLBDriver.type = -1
@@ -39,8 +54,8 @@ class CloudStackLBTests(unittest.TestCase):
                        'you also need to provide host and path argument'
         cls = get_driver(Provider.CLOUDSTACK)
 
-        self.assertRaisesRegexp(Exception, expected_msg, cls,
-                                'key', 'secret')
+        assertRaisesRegex(self, Exception, expected_msg, cls,
+                          'key', 'secret')
 
         try:
             cls('key', 'secret', True, 'localhost', '/path')
@@ -87,7 +102,7 @@ class CloudStackLBTests(unittest.TestCase):
             self.assertEqual(member.balancer, balancer)
 
 
-class CloudStackMockHttp(MockHttpTestCase):
+class CloudStackMockHttp(MockHttp, unittest.TestCase):
     fixtures = LoadBalancerFileFixtures('cloudstack')
     fixture_tag = 'default'
 
@@ -116,12 +131,12 @@ class CloudStackMockHttp(MockHttpTestCase):
         else:
             fixture = command + '_' + self.fixture_tag + '.json'
             body, obj = self._load_fixture(fixture)
-            return (httplib.OK, body, obj, httplib.responses[httplib.OK])
+            return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 
     def _cmd_queryAsyncJobResult(self, jobid):
         fixture = 'queryAsyncJobResult' + '_' + str(jobid) + '.json'
         body, obj = self._load_fixture(fixture)
-        return (httplib.OK, body, obj, httplib.responses[httplib.OK])
+        return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 
 if __name__ == "__main__":
     sys.exit(unittest.main())

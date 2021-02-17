@@ -13,6 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Dict
+from typing import Optional
+from typing import Type
+
 import base64
 from datetime import datetime
 import hashlib
@@ -23,13 +27,11 @@ from hashlib import sha256
 try:
     import simplejson as json
 except ImportError:
-    import json
+    import json  # type: ignore
 
-try:
-    from lxml import etree as ET
-except ImportError:
-    from xml.etree import ElementTree as ET
-
+from libcloud.utils.py3 import ET
+from libcloud.utils.py3 import _real_unicode
+from libcloud.utils.py3 import basestring
 from libcloud.common.base import ConnectionUserAndKey, XmlResponse, BaseDriver
 from libcloud.common.base import JsonResponse
 from libcloud.common.types import InvalidCredsError, MalformedResponseError
@@ -51,6 +53,23 @@ __all__ = [
 
 DEFAULT_SIGNATURE_VERSION = '2'
 UNSIGNED_PAYLOAD = 'UNSIGNED-PAYLOAD'
+
+PARAMS_NOT_STRING_ERROR_MSG = """
+"params" dictionary contains an attribute "%s" which value (%s, %s) is not a
+string.
+
+Parameters are sent via query parameters and not via request body and as such,
+all the values need to be of a simple type (string, int, bool).
+
+For arrays and other complex types, you should use notation similar to this
+one:
+
+params['TagSpecification.1.Tag.Value'] = 'foo'
+params['TagSpecification.2.Tag.Value'] = 'bar'
+
+See https://docs.aws.amazon.com/AWSEC2/latest/APIReference/Query-Requests.html
+for details.
+""".strip()
 
 
 class AWSBaseResponse(XmlResponse):
@@ -81,7 +100,7 @@ class AWSGenericResponse(AWSBaseResponse):
     # exception class that is raised immediately.
     # If a custom exception class is not defined, errors are accumulated and
     # returned from the parse_error method.
-    exceptions = {}
+    exceptions = {}  # type: Dict[str, Type[Exception]]
 
     def success(self):
         return self.status in [httplib.OK, httplib.CREATED, httplib.ACCEPTED]
@@ -134,6 +153,7 @@ class AWSGenericResponse(AWSBaseResponse):
 
 
 class AWSTokenConnection(ConnectionUserAndKey):
+
     def __init__(self, user_id, key, secure=True,
                  host=None, port=None, url=None, timeout=None, proxy_url=None,
                  token=None, retry_delay=None, backoff=None):
@@ -320,11 +340,15 @@ class AWSRequestSignerAlgorithmV4(AWSRequestSigner):
                           for k, v in sorted(headers.items())]) + '\n'
 
     def _get_payload_hash(self, method, data=None):
+        if data is UnsignedPayloadSentinel:
+            return UNSIGNED_PAYLOAD
         if method in ('POST', 'PUT'):
             if data:
+                if hasattr(data, 'next') or hasattr(data, '__next__'):
+                    # File upload; don't try to read the entire payload
+                    return UNSIGNED_PAYLOAD
                 return _hash(data)
             else:
-                # When upload file, we can't know payload here even if given
                 return UNSIGNED_PAYLOAD
         else:
             return _hash('')
@@ -346,8 +370,12 @@ class AWSRequestSignerAlgorithmV4(AWSRequestSigner):
         ])
 
 
+class UnsignedPayloadSentinel:
+    pass
+
+
 class SignedAWSConnection(AWSTokenConnection):
-    version = None
+    version = None  # type: Optional[str]
 
     def __init__(self, user_id, key, secure=True, host=None, port=None,
                  url=None, timeout=None, proxy_url=None, token=None,
@@ -379,6 +407,15 @@ class SignedAWSConnection(AWSTokenConnection):
         params = self.signer.get_request_params(params=params,
                                                 method=self.method,
                                                 path=self.action)
+
+        # Verify that params only contain simple types and no nested
+        # dictionaries.
+        # params are sent via query params so only strings are supported
+        for key, value in params.items():
+            if not isinstance(value, (_real_unicode, basestring, int, bool)):
+                msg = PARAMS_NOT_STRING_ERROR_MSG % (key, value, type(value))
+                raise ValueError(msg)
+
         return params
 
     def pre_connect_hook(self, params, headers):

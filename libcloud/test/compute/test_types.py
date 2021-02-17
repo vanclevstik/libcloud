@@ -1,3 +1,21 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import sys
+import unittest
+
 from unittest import TestCase
 
 from libcloud.compute.types import Provider, NodeState, StorageVolumeState, \
@@ -6,20 +24,27 @@ from libcloud.compute.types import Provider, NodeState, StorageVolumeState, \
 
 class TestType(Type):
     INUSE = "inuse"
+    NOTINUSE = "NOTINUSE"
 
 
 class TestTestType(TestCase):
     model = TestType
-    attribute = TestType.INUSE
 
     def test_provider_tostring(self):
         self.assertEqual(Provider.tostring(TestType.INUSE), "INUSE")
+        self.assertEqual(Provider.tostring(TestType.NOTINUSE), "NOTINUSE")
 
     def test_provider_fromstring(self):
         self.assertEqual(TestType.fromstring("inuse"), TestType.INUSE)
+        self.assertEqual(TestType.fromstring("NOTINUSE"), TestType.NOTINUSE)
 
     def test_provider_fromstring_caseinsensitive(self):
         self.assertEqual(TestType.fromstring("INUSE"), TestType.INUSE)
+        self.assertEqual(TestType.fromstring("notinuse"), TestType.NOTINUSE)
+
+    def test_compare_as_string(self):
+        self.assertTrue(TestType.INUSE == 'inuse')
+        self.assertFalse(TestType.INUSE == 'bar')
 
 
 class TestProvider(TestCase):
@@ -68,3 +93,7 @@ class TestVolumeSnapshotState(TestCase):
             VolumeSnapshotState.fromstring("available"),
             VolumeSnapshotState.AVAILABLE
         )
+
+
+if __name__ == '__main__':
+    sys.exit(unittest.main())

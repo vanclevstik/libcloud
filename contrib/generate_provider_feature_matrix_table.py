@@ -55,16 +55,6 @@ from libcloud.backup.providers import get_driver as get_backup_driver
 from libcloud.backup.providers import DRIVERS as BACKUP_DRIVERS
 from libcloud.backup.types import Provider as BackupProvider
 
-REQUIRED_DEPENDENCIES = [
-    'pysphere'
-]
-
-for dependency in REQUIRED_DEPENDENCIES:
-    try:
-        __import__(dependency)
-    except ImportError:
-        msg = 'Missing required dependency: %s' % (dependency)
-        raise ImportError(msg)
 
 HEADER = ('.. NOTE: This file has been generated automatically using '
           'generate_provider_feature_matrix_table.py script, don\'t manually '
@@ -72,8 +62,8 @@ HEADER = ('.. NOTE: This file has been generated automatically using '
 
 BASE_API_METHODS = {
     'compute_main': ['list_nodes', 'create_node', 'reboot_node',
-                     'destroy_node', 'list_images', 'list_sizes',
-                     'deploy_node'],
+                     'destroy_node', 'start_node', 'stop_node',
+                     'list_images', 'list_sizes', 'deploy_node'],
     'compute_image_management': ['list_images', 'get_image',
                                  'create_image', 'delete_image', 'copy_image'],
     'compute_block_storage': ['list_volumes', 'create_volume',
@@ -93,7 +83,8 @@ BASE_API_METHODS = {
                      'iterate_containers', 'iterate_container_objects',
                      'create_container', 'delete_container', 'upload_object',
                      'upload_object_via_stream', 'download_object',
-                     'download_object_as_stream', 'delete_object'],
+                     'download_object_range', 'download_object_as_stream',
+                     'download_object_range_as_stream', 'delete_object'],
     'storage_cdn': ['enable_container_cdn', 'enable_object_cdn',
                     'get_container_cdn_url', 'get_object_cdn_url'],
     'dns': ['list_zones', 'list_records', 'iterate_zones', 'iterate_records',
@@ -115,6 +106,8 @@ FRIENDLY_METHODS_NAMES = {
         'list_nodes': 'list nodes',
         'create_node': 'create node',
         'reboot_node': 'reboot node',
+        'start_node': 'start node',
+        'stop_node': 'stop node',
         'destroy_node': 'destroy node',
         'list_images': 'list images',
         'list_sizes': 'list sizes',
@@ -161,6 +154,8 @@ FRIENDLY_METHODS_NAMES = {
         'upload_object_via_stream': 'streaming object upload',
         'download_object': 'download object',
         'download_object_as_stream': 'streaming object download',
+        'download_object_range': 'download part of an object',
+        'download_object_range_as_stream': 'streaming partial object download',
         'delete_object': 'delete object'
     },
     'storage_cdn': {
@@ -215,7 +210,6 @@ FRIENDLY_METHODS_NAMES = {
 
 IGNORED_PROVIDERS = [
     'dummy',
-    'local',
 
     # Deprecated constants
     'cloudsigma_us',
@@ -274,9 +268,9 @@ def generate_providers_table(api):
 
         try:
             cls = get_driver_method(enum)
-        except Exception:
+        except Exception as e:
             # Deprecated providers throw an exception
-            print('Ignoring deprecated constant "%s"' % (enum))
+            print('Ignoring deprecated constant "%s": %s' % (enum, str(e)))
             continue
 
         # Hack for providers which expose multiple classes and support multiple
@@ -294,14 +288,26 @@ def generate_providers_table(api):
             from libcloud.compute.drivers.digitalocean import \
                 DigitalOcean_v2_NodeDriver
             cls = DigitalOcean_v2_NodeDriver
+        elif name.lower() == 'linode' and api.startswith('compute'):
+            from libcloud.compute.drivers.linode import \
+                LinodeNodeDriverV4
+            cls = LinodeNodeDriverV4
+        elif name.lower() == 'linode' and api.startswith('dns'):
+            from libcloud.dns.drivers.linode import \
+                LinodeDNSDriverV4
+            cls = LinodeDNSDriverV4
 
         if name.lower() in IGNORED_PROVIDERS:
             continue
 
+        def is_function_or_method(*args, **kwargs):
+            return (inspect.isfunction(*args, **kwargs) or
+                    inspect.ismethod(*args, **kwargs))
+
         driver_methods = dict(inspect.getmembers(cls,
-                                                 predicate=inspect.ismethod))
+                                                 predicate=is_function_or_method))
         base_methods = dict(inspect.getmembers(driver,
-                                               predicate=inspect.ismethod))
+                                               predicate=is_function_or_method))
         base_api_methods = BASE_API_METHODS[api]
 
         result[name] = {'name': cls.name, 'website': cls.website,
@@ -310,16 +316,22 @@ def generate_providers_table(api):
                         'cls': cls,
                         'methods': {}}
 
+        print('Generating tables for provider: %s' % (name))
+
         for method_name in base_api_methods:
             base_method = base_methods[method_name]
-            driver_method = driver_methods[method_name]
 
             if method_name == 'deploy_node':
                 features = getattr(cls, 'features', {}).get('create_node', [])
                 is_implemented = len(features) >= 1
             else:
-                is_implemented = (id(driver_method.im_func) !=
-                                  id(base_method.im_func))
+                if method_name not in driver_methods:
+                    is_implemented = False
+                else:
+                    driver_method = driver_methods[method_name]
+                    # NOTE: id() is not safe
+                    # is_implemented = (id(driver_method) != id(base_method))
+                    is_implemented = (driver_method != base_method)
 
             result[name]['methods'][method_name] = is_implemented
 
@@ -399,6 +411,10 @@ def generate_supported_providers_table(api, provider_matrix):
         module_str = ':mod:`%s`' % (values['module'])
         class_str = ':class:`%s`' % (values['class'])
 
+        # Ignore old deprecated driver class per region S3 drivers
+        if 'Amazon S3 (' in values['name']:
+            continue
+
         params = {'api': api, 'provider': provider.lower()}
         driver_docs_path = pjoin(this_dir,
                                  '../docs/%(api)s/drivers/%(provider)s.rst'
@@ -410,9 +426,12 @@ def generate_supported_providers_table(api, provider_matrix):
             docs_link = ''
 
         cls = values['cls']
-        supported_regions = cls.list_regions()
+        supported_regions = cls.list_regions() if hasattr(cls, 'list_regions') \
+            else None
 
         if supported_regions:
+            # Sort the regions to achieve stable output
+            supported_regions = sorted(supported_regions)
             supported_regions = ', '.join(supported_regions)
         else:
             supported_regions = 'single region driver'
@@ -475,5 +494,6 @@ def generate_tables():
         with open(supported_methods_path, 'w') as fp:
             fp.write(HEADER + '\n\n')
             fp.write(supported_methods)
+
 
 generate_tables()

@@ -16,11 +16,23 @@
 Provider related utilities
 """
 
+from __future__ import absolute_import
+
+from typing import Type
+from typing import Union
+from types import ModuleType
+from typing import TYPE_CHECKING
+
 from libcloud.compute.types import Provider
 from libcloud.common.providers import get_driver as _get_provider_driver
 from libcloud.common.providers import set_driver as _set_provider_driver
 from libcloud.compute.types import OLD_CONSTANT_TO_NEW_MAPPING
 from libcloud.compute.deprecated import DEPRECATED_DRIVERS
+
+
+if TYPE_CHECKING:
+    # NOTE: This is needed to avoid having setup.py depend on requests
+    from libcloud.compute.base import NodeDriver
 
 __all__ = [
     "Provider",
@@ -30,6 +42,8 @@ __all__ = [
 DRIVERS = {
     Provider.AZURE:
     ('libcloud.compute.drivers.azure', 'AzureNodeDriver'),
+    Provider.AZURE_ARM:
+    ('libcloud.compute.drivers.azure_arm', 'AzureNodeDriver'),
     Provider.DUMMY:
     ('libcloud.compute.drivers.dummy', 'DummyNodeDriver'),
     Provider.EC2:
@@ -110,22 +124,24 @@ DRIVERS = {
     ('libcloud.compute.drivers.ec2', 'OutscaleSASNodeDriver'),
     Provider.OUTSCALE_INC:
     ('libcloud.compute.drivers.ec2', 'OutscaleINCNodeDriver'),
-    Provider.VSPHERE:
-    ('libcloud.compute.drivers.vsphere', 'VSphereNodeDriver'),
+    Provider.OUTSCALE:
+    ('libcloud.compute.drivers.outscale', 'OutscaleNodeDriver'),
     Provider.PROFIT_BRICKS:
     ('libcloud.compute.drivers.profitbricks', 'ProfitBricksNodeDriver'),
+    Provider.VSPHERE:
+    ('libcloud.compute.drivers.vsphere', 'VSphereNodeDriver'),
     Provider.VULTR:
     ('libcloud.compute.drivers.vultr', 'VultrNodeDriver'),
     Provider.AURORACOMPUTE:
     ('libcloud.compute.drivers.auroracompute', 'AuroraComputeNodeDriver'),
     Provider.CLOUDWATT:
     ('libcloud.compute.drivers.cloudwatt', 'CloudwattNodeDriver'),
-    Provider.PACKET:
-    ('libcloud.compute.drivers.packet', 'PacketNodeDriver'),
+    Provider.EQUINIXMETAL:
+    ('libcloud.compute.drivers.equinixmetal', 'EquinixMetalNodeDriver'),
     Provider.ONAPP:
     ('libcloud.compute.drivers.onapp', 'OnAppNodeDriver'),
-    Provider.RUNABOVE:
-    ('libcloud.compute.drivers.runabove', 'RunAboveNodeDriver'),
+    Provider.OVH:
+    ('libcloud.compute.drivers.ovh', 'OvhNodeDriver'),
     Provider.INTERNETSOLUTIONS:
     ('libcloud.compute.drivers.internetsolutions',
      'InternetSolutionsNodeDriver'),
@@ -135,16 +151,35 @@ DRIVERS = {
     ('libcloud.compute.drivers.medone', 'MedOneNodeDriver'),
     Provider.BSNL:
     ('libcloud.compute.drivers.bsnl', 'BSNLNodeDriver'),
-    Provider.CISCOCCS:
-    ('libcloud.compute.drivers.ciscoccs', 'CiscoCCSNodeDriver'),
     Provider.NTTA:
     ('libcloud.compute.drivers.ntta', 'NTTAmericaNodeDriver'),
     Provider.ALIYUN_ECS:
     ('libcloud.compute.drivers.ecs', 'ECSDriver'),
+    Provider.CLOUDSCALE:
+    ('libcloud.compute.drivers.cloudscale', 'CloudscaleNodeDriver'),
+    Provider.ONEANDONE:
+    ('libcloud.compute.drivers.oneandone', 'OneAndOneNodeDriver'),
+    Provider.UPCLOUD:
+    ('libcloud.compute.drivers.upcloud', 'UpcloudDriver'),
+    Provider.NTTCIS:
+    ('libcloud.compute.drivers.nttcis', 'NttCisNodeDriver'),
+    Provider.SCALEWAY:
+    ('libcloud.compute.drivers.scaleway', 'ScalewayNodeDriver'),
+    Provider.MAXIHOST:
+    ('libcloud.compute.drivers.maxihost', 'MaxihostNodeDriver'),
+    Provider.GRIDSCALE:
+    ('libcloud.compute.drivers.gridscale', 'GridscaleNodeDriver'),
+    Provider.KAMATERA:
+    ('libcloud.compute.drivers.kamatera', 'KamateraNodeDriver'),
+    Provider.KUBEVIRT:
+    ('libcloud.compute.drivers.kubevirt', 'KubeVirtNodeDriver'),
+    Provider.GIG_G8:
+    ('libcloud.compute.drivers.gig_g8', 'G8NodeDriver')
 }
 
 
 def get_driver(provider):
+    # type: (Union[Provider, str]) -> Type[NodeDriver]
     deprecated_constants = OLD_CONSTANT_TO_NEW_MAPPING
     return _get_provider_driver(drivers=DRIVERS, provider=provider,
                                 deprecated_providers=DEPRECATED_DRIVERS,
@@ -152,5 +187,6 @@ def get_driver(provider):
 
 
 def set_driver(provider, module, klass):
+    # type: (Union[Provider, str], ModuleType, type) -> Type[NodeDriver]
     return _set_provider_driver(drivers=DRIVERS, provider=provider,
                                 module=module, klass=klass)

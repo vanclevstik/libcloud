@@ -13,10 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from hashlib import sha1
+import atexit
 import hmac
 import os
 from time import time
+from hashlib import sha1
 
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import urlencode
@@ -24,7 +25,7 @@ from libcloud.utils.py3 import urlencode
 try:
     import simplejson as json
 except ImportError:
-    import json
+    import json  # type: ignore
 
 from libcloud.utils.py3 import PY3
 from libcloud.utils.py3 import b
@@ -63,7 +64,7 @@ class CloudFilesResponse(Response):
 
     def success(self):
         i = int(self.status)
-        return i >= 200 and i <= 299 or i in self.valid_response_codes
+        return 200 <= i <= 299 or i in self.valid_response_codes
 
     def parse_body(self):
         if not self.body:
@@ -83,7 +84,7 @@ class CloudFilesResponse(Response):
         if content_type == 'application/json':
             try:
                 data = json.loads(self.body)
-            except:
+            except Exception:
                 raise MalformedResponseError('Failed to parse JSON',
                                              body=self.body,
                                              driver=CloudFilesStorageDriver)
@@ -129,7 +130,7 @@ class OpenStackSwiftConnection(OpenStackBaseConnection):
             self._service_region = None
 
     def get_endpoint(self, *args, **kwargs):
-        if '2.0' in self._auth_version:
+        if ('2.0' in self._auth_version) or ('3.x' in self._auth_version):
             endpoint = self.service_catalog.get_endpoint(
                 service_type=self._service_type,
                 name=self._service_name,
@@ -137,6 +138,8 @@ class OpenStackSwiftConnection(OpenStackBaseConnection):
         elif ('1.1' in self._auth_version) or ('1.0' in self._auth_version):
             endpoint = self.service_catalog.get_endpoint(
                 name=self._service_name, region=self._service_region)
+        else:
+            endpoint = None
 
         if endpoint:
             return endpoint.url
@@ -259,7 +262,7 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
             region = kwargs['ex_force_service_region']
 
         self.use_internal_url = use_internal_url
-        OpenStackDriverMixin.__init__(self, (), **kwargs)
+        OpenStackDriverMixin.__init__(self, **kwargs)
         super(CloudFilesStorageDriver, self).__init__(key=key, secret=secret,
                                                       secure=secure, host=host,
                                                       port=port, region=region,
@@ -310,7 +313,7 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
 
         raise LibcloudError('Unexpected status code: %s' % (response.status))
 
-    def get_container_cdn_url(self, container):
+    def get_container_cdn_url(self, container, ex_ssl_uri=False):
         # pylint: disable=unexpected-keyword-arg
         container_name_encoded = self._encode_container_name(container.name)
         response = self.connection.request('/%s' % (container_name_encoded),
@@ -318,7 +321,10 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
                                            cdn_request=True)
 
         if response.status == httplib.NO_CONTENT:
-            cdn_url = response.headers['x-cdn-uri']
+            if ex_ssl_uri:
+                cdn_url = response.headers['x-cdn-ssl-uri']
+            else:
+                cdn_url = response.headers['x-cdn-uri']
             return cdn_url
         elif response.status == httplib.NOT_FOUND:
             raise ContainerDoesNotExistError(value='',
@@ -413,9 +419,58 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
 
         return self._get_object(obj=obj, callback=read_in_chunks,
                                 response=response,
-                                callback_kwargs={'iterator': response.response,
-                                                 'chunk_size': chunk_size},
+                                callback_kwargs={
+                                    'iterator': response.iter_content(
+                                        chunk_size
+                                    ),
+                                    'chunk_size': chunk_size
+                                },
                                 success_status_code=httplib.OK)
+
+    def download_object_range(self, obj, destination_path, start_bytes,
+                              end_bytes=None, overwrite_existing=False,
+                              delete_on_failure=True):
+        self._validate_start_and_end_bytes(start_bytes=start_bytes,
+                                           end_bytes=end_bytes)
+
+        container_name = obj.container.name
+        object_name = obj.name
+        headers = {'Range': self._get_standard_range_str(start_bytes,
+                                                         end_bytes)}
+        response = self.connection.request('/%s/%s' % (container_name,
+                                                       object_name),
+                                           method='GET', headers=headers,
+                                           raw=True)
+
+        return self._get_object(
+            obj=obj, callback=self._save_object, response=response,
+            callback_kwargs={'obj': obj,
+                             'response': response.response,
+                             'destination_path': destination_path,
+                             'overwrite_existing': overwrite_existing,
+                             'delete_on_failure': delete_on_failure,
+                             'partial_download': True},
+            success_status_code=httplib.PARTIAL_CONTENT)
+
+    def download_object_range_as_stream(self, obj, start_bytes, end_bytes=None,
+                                        chunk_size=None):
+        self._validate_start_and_end_bytes(start_bytes=start_bytes,
+                                           end_bytes=end_bytes)
+        container_name = obj.container.name
+        object_name = obj.name
+        headers = {'Range': self._get_standard_range_str(start_bytes,
+                                                         end_bytes)}
+        response = self.connection.request('/%s/%s' % (container_name,
+                                                       object_name),
+                                           headers=headers,
+                                           method='GET', raw=True)
+
+        return self._get_object(
+            obj=obj, callback=read_in_chunks,
+            response=response,
+            callback_kwargs={'iterator': response.iter_content(chunk_size),
+                             'chunk_size': chunk_size},
+            success_status_code=httplib.PARTIAL_CONTENT)
 
     def upload_object(self, file_path, container, object_name, extra=None,
                       verify_hash=True, headers=None):
@@ -424,12 +479,8 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
 
         Note: This will override file with a same name if it already exists.
         """
-        upload_func = self._upload_file
-        upload_func_kwargs = {'file_path': file_path}
 
         return self._put_object(container=container, object_name=object_name,
-                                upload_func=upload_func,
-                                upload_func_kwargs=upload_func_kwargs,
                                 extra=extra, file_path=file_path,
                                 verify_hash=verify_hash, headers=headers)
 
@@ -439,13 +490,8 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
         if isinstance(iterator, file):
             iterator = iter(iterator)
 
-        upload_func = self._stream_data
-        upload_func_kwargs = {'iterator': iterator}
-
         return self._put_object(container=container, object_name=object_name,
-                                upload_func=upload_func,
-                                upload_func_kwargs=upload_func_kwargs,
-                                extra=extra, iterator=iterator,
+                                extra=extra, stream=iterator,
                                 headers=headers)
 
     def delete_object(self, obj):
@@ -646,16 +692,12 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
 
     def _upload_object_part(self, container, object_name, part_number,
                             iterator, verify_hash=True):
-        upload_func = self._stream_data
-        upload_func_kwargs = {'iterator': iterator}
         part_name = object_name + '/%08d' % part_number
         extra = {'content_type': 'application/octet-stream'}
 
         self._put_object(container=container,
                          object_name=part_name,
-                         upload_func=upload_func,
-                         upload_func_kwargs=upload_func_kwargs,
-                         extra=extra, iterator=iterator,
+                         extra=extra, stream=iterator,
                          verify_hash=verify_hash)
 
     def _upload_object_manifest(self, container, object_name, extra=None,
@@ -698,38 +740,30 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
 
         return obj
 
-    def list_container_objects(self, container, ex_prefix=None):
-        """
-        Return a list of objects for the given container.
-
-        :param container: Container instance.
-        :type container: :class:`Container`
-
-        :param ex_prefix: Only get objects with names starting with ex_prefix
-        :type ex_prefix: ``str``
-
-        :return: A list of Object instances.
-        :rtype: ``list`` of :class:`Object`
-        """
-        return list(self.iterate_container_objects(container,
-                                                   ex_prefix=ex_prefix))
-
-    def iterate_container_objects(self, container, ex_prefix=None):
+    def iterate_container_objects(self, container, prefix=None,
+                                  ex_prefix=None):
         """
         Return a generator of objects for the given container.
 
         :param container: Container instance
         :type container: :class:`Container`
 
-        :param ex_prefix: Only get objects with names starting with ex_prefix
+        :param prefix: Only get objects with names starting with prefix
+        :type prefix: ``str``
+
+        :param ex_prefix: (Deprecated.) Only get objects with names starting
+                          with ex_prefix
         :type ex_prefix: ``str``
 
         :return: A generator of Object instances.
         :rtype: ``generator`` of :class:`Object`
         """
+        prefix = self._normalize_prefix_argument(prefix, ex_prefix)
+
         params = {}
-        if ex_prefix:
-            params['prefix'] = ex_prefix
+
+        if prefix:
+            params['prefix'] = prefix
 
         while True:
             container_name_encoded = \
@@ -756,9 +790,8 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
                 raise LibcloudError('Unexpected status code: %s' %
                                     (response.status))
 
-    def _put_object(self, container, object_name, upload_func,
-                    upload_func_kwargs, extra=None, file_path=None,
-                    iterator=None, verify_hash=True, headers=None):
+    def _put_object(self, container, object_name, extra=None, file_path=None,
+                    stream=None, verify_hash=True, headers=None):
         extra = extra or {}
         container_name_encoded = self._encode_container_name(container.name)
         object_name_encoded = self._encode_object_name(object_name)
@@ -778,11 +811,10 @@ class CloudFilesStorageDriver(StorageDriver, OpenStackDriverMixin):
         request_path = '/%s/%s' % (container_name_encoded, object_name_encoded)
         result_dict = self._upload_object(
             object_name=object_name, content_type=content_type,
-            upload_func=upload_func, upload_func_kwargs=upload_func_kwargs,
             request_path=request_path, request_method='PUT',
-            headers=headers, file_path=file_path, iterator=iterator)
+            headers=headers, file_path=file_path, stream=stream)
 
-        response = result_dict['response'].response
+        response = result_dict['response']
         bytes_transferred = result_dict['bytes_transferred']
         server_hash = result_dict['response'].headers.get('etag', None)
 
@@ -949,6 +981,16 @@ class ChunkStreamReader(object):
         self.chunk_size = chunk_size
         self.bytes_read = 0
         self.stop_iteration = False
+
+        # Work around to make sure file description is closed even if the
+        # iterator is never read from or if it's not fully exhausted
+        def close_file(fd):
+            try:
+                fd.close()
+            except Exception:
+                pass
+
+        atexit.register(close_file, self.fd)
 
     def __iter__(self):
         return self

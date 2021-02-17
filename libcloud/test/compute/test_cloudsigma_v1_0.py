@@ -33,11 +33,10 @@ class CloudSigmaAPI10BaseTestCase(object):
     driver_kwargs = {}
 
     def setUp(self):
+        self.driver_klass.connectionCls.conn_class = CloudSigmaHttp
+        CloudSigmaHttp.type = None
         self.driver = self.driver_klass(*self.driver_args,
                                         **self.driver_kwargs)
-
-        self.driver.connectionCls.conn_classes = (None,
-                                                  CloudSigmaHttp)
 
     def test_list_nodes(self):
         nodes = self.driver.list_nodes()
@@ -115,7 +114,7 @@ class CloudSigmaAPI10BaseTestCase(object):
         self.assertTrue(result)
 
     def test_str2dicts(self):
-        string = 'mem 1024\ncpu 2200\n\nmem2048\cpu 1100'
+        string = 'mem 1024\ncpu 2200\n\nmem2048\\cpu 1100'
         result = str2dicts(string)
         self.assertEqual(len(result), 2)
 

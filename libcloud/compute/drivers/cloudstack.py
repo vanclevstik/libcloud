@@ -15,7 +15,6 @@
 
 from __future__ import with_statement
 
-import sys
 import base64
 import warnings
 
@@ -36,8 +35,7 @@ from libcloud.utils.networking import is_private_subnet
 def transform_int_or_unlimited(value):
     try:
         return int(value)
-    except ValueError:
-        e = sys.exc_info()[1]
+    except ValueError as e:
 
         if str(value).lower() == 'unlimited':
             return -1
@@ -485,6 +483,18 @@ class CloudStackNode(Node):
         Delete a NAT/firewall rule.
         """
         return self.driver.ex_delete_port_forwarding_rule(node=self, rule=rule)
+
+    def ex_restore(self, template=None):
+        """
+        Restore virtual machine
+        """
+        return self.driver.ex_restore(node=self, template=template)
+
+    def ex_change_node_size(self, offering):
+        """
+        Change virtual machine offering/size
+        """
+        return self.driver.ex_change_node_size(node=self, offering=offering)
 
     def ex_start(self):
         """
@@ -1235,6 +1245,7 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
     NODE_STATE_MAP = {
         'Running': NodeState.RUNNING,
         'Starting': NodeState.REBOOTING,
+        'Migrating': NodeState.MIGRATING,
         'Stopped': NodeState.STOPPED,
         'Stopping': NodeState.PENDING,
         'Destroyed': NodeState.TERMINATED,
@@ -1251,7 +1262,8 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         'Allocated': StorageVolumeState.AVAILABLE,
         'Ready': StorageVolumeState.AVAILABLE,
         'Snapshotting': StorageVolumeState.BACKUP,
-        'UploadError': StorageVolumeState.ERROR
+        'UploadError': StorageVolumeState.ERROR,
+        'Migrating': StorageVolumeState.MIGRATING
     }
 
     def __init__(self, key, secret=None, secure=True, host=None,
@@ -1523,7 +1535,12 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                                   0, self, extra=extra))
         return sizes
 
-    def create_node(self, **kwargs):
+    def create_node(self, name, size, image, location=None, networks=None,
+                    project=None, diskoffering=None, ex_keyname=None,
+                    ex_userdata=None,
+                    ex_security_groups=None, ex_displayname=None,
+                    ex_ip_address=None, ex_start_vm=False,
+                    ex_rootdisksize=None, ex_affinity_groups=None):
         """
         Create a new node
 
@@ -1573,7 +1590,15 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         :rtype:     :class:`.CloudStackNode`
         """
 
-        server_params = self._create_args_to_params(None, **kwargs)
+        server_params = self._create_args_to_params(
+            node=None,
+            name=name, size=size, image=image, location=location,
+            networks=networks, diskoffering=diskoffering,
+            ex_keyname=ex_keyname, ex_userdata=ex_userdata,
+            ex_security_groups=ex_security_groups,
+            ex_displayname=ex_displayname, ex_ip_address=ex_ip_address,
+            ex_start_vm=ex_start_vm, ex_rootdisksize=ex_rootdisksize,
+            ex_affinity_groups=ex_affinity_groups)
 
         data = self._async_request(command='deployVirtualMachine',
                                    params=server_params,
@@ -1581,25 +1606,14 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         node = self._to_node(data=data)
         return node
 
-    def _create_args_to_params(self, node, **kwargs):
+    def _create_args_to_params(self, node, name, size, image, location=None,
+                               networks=None,
+                               project=None, diskoffering=None,
+                               ex_keyname=None, ex_userdata=None,
+                               ex_security_groups=None, ex_displayname=None,
+                               ex_ip_address=None, ex_start_vm=False,
+                               ex_rootdisksize=None, ex_affinity_groups=None):
         server_params = {}
-
-        # TODO: Refactor and use "kwarg_to_server_params" map
-        name = kwargs.get('name', None)
-        size = kwargs.get('size', None)
-        image = kwargs.get('image', None)
-        location = kwargs.get('location', None)
-        networks = kwargs.get('networks', None)
-        project = kwargs.get('project', None)
-        diskoffering = kwargs.get('diskoffering', None)
-        ex_key_name = kwargs.get('ex_keyname', None)
-        ex_user_data = kwargs.get('ex_userdata', None)
-        ex_security_groups = kwargs.get('ex_security_groups', None)
-        ex_displayname = kwargs.get('ex_displayname', None)
-        ex_ip_address = kwargs.get('ex_ip_address', None)
-        ex_start_vm = kwargs.get('ex_start_vm', None)
-        ex_rootdisksize = kwargs.get('ex_rootdisksize', None)
-        ex_affinity_groups = kwargs.get('ex_affinity_groups', None)
 
         if name:
             server_params['name'] = name
@@ -1629,12 +1643,12 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         if diskoffering:
             server_params['diskofferingid'] = diskoffering.id
 
-        if ex_key_name:
-            server_params['keypair'] = ex_key_name
+        if ex_keyname:
+            server_params['keypair'] = ex_keyname
 
-        if ex_user_data:
-            ex_user_data = base64.b64encode(b(ex_user_data).decode('ascii'))
-            server_params['userdata'] = ex_user_data
+        if ex_userdata:
+            ex_userdata = base64.b64encode(b(ex_userdata)).decode('ascii')
+            server_params['userdata'] = ex_userdata
 
         if ex_security_groups:
             ex_security_groups = ','.join(ex_security_groups)
@@ -1690,6 +1704,47 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
                             params={'id': node.id},
                             method='GET')
         return True
+
+    def ex_restore(self, node, template=None):
+        """
+        Restore virtual machine
+
+        :param node: Node to restore
+        :type node: :class:`CloudStackNode`
+
+        :param template: Optional new template
+        :type  template: :class:`NodeImage`
+
+        :rtype ``str``
+        """
+        params = {'virtualmachineid': node.id}
+        if template:
+            params['templateid'] = template.id
+
+        res = self._async_request(command='restoreVirtualMachine',
+                                  params=params,
+                                  method='GET')
+        return res['virtualmachine']['templateid']
+
+    def ex_change_node_size(self, node, offering):
+        """
+        Change offering/size of a virtual machine
+
+        :param node: Node to change size
+        :type node: :class:`CloudStackNode`
+
+        :param offering: The new offering
+        :type  offering: :class:`NodeSize`
+
+        :rtype ``str``
+        """
+        res = self._async_request(command='scaleVirtualMachine',
+                                  params={
+                                      'id': node.id,
+                                      'serviceofferingid': offering.id
+                                  },
+                                  method='GET')
+        return res['virtualmachine']['serviceofferingid']
 
     def ex_start(self, node):
         """
@@ -3795,10 +3850,6 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
             params['ostypeid'] = os_type_id
 
         return self._sync_request(command='registerIso',
-                                  name=name,
-                                  displaytext=name,
-                                  url=url,
-                                  zoneid=location.id,
                                   params=params)
 
     def ex_limits(self):
@@ -4646,6 +4697,8 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         private_ips = []
 
         for nic in data['nic']:
+            if 'ipaddress' not in nic:
+                continue
             if is_private_subnet(nic['ipaddress']):
                 private_ips.append(nic['ipaddress'])
             else:
@@ -4721,10 +4774,9 @@ class CloudStackNodeDriver(CloudStackDriverMixIn, NodeDriver):
         tags = {}
 
         for tag in tag_set:
-            for key, value in tag.iteritems():
-                key = tag['key']
-                value = tag['value']
-                tags[key] = value
+            key = tag['key']
+            value = tag['value']
+            tags[key] = value
 
         return tags
 

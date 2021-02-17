@@ -19,7 +19,7 @@ from libcloud.compute.drivers.cloudstack import CloudStackNodeDriver
 
 
 class KTUCloudNodeDriver(CloudStackNodeDriver):
-    "Driver for KTUCloud Compute platform."
+    """Driver for KTUCloud Compute platform."""
 
     EMPTY_DISKOFFERINGID = '0'
     type = Provider.KTUCLOUD
@@ -66,17 +66,17 @@ class KTUCloudNodeDriver(CloudStackNodeDriver):
             )
         return sizes
 
-    def create_node(self, name, size, image, location=None, **kwargs):
+    def create_node(self, name, size, image, location=None,
+                    ex_usageplantype='hourly'):
         params = {'displayname': name,
                   'serviceofferingid': image.id,
                   'templateid': str(image.extra['templateid']),
                   'zoneid': str(image.extra['zoneid'])}
 
-        usageplantype = kwargs.pop('usageplantype', None)
-        if usageplantype is None:
+        if ex_usageplantype is None:
             params['usageplantype'] = 'hourly'
         else:
-            params['usageplantype'] = usageplantype
+            params['usageplantype'] = ex_usageplantype
 
         if size.id != self.EMPTY_DISKOFFERINGID:
             params['diskofferingid'] = size.id

@@ -18,62 +18,46 @@
 # clause BSD license
 # https://bitbucket.org/loewis/django-3k
 
-# pylint: disable=import-error
+# pylint: skip-file
 
 from __future__ import absolute_import
 
 import sys
 import types
 
+DEFAULT_LXML = False
+
 try:
-    from lxml import etree as ET
+    if DEFAULT_LXML:
+        from lxml import etree as ET
+    else:
+        from xml.etree import ElementTree as ET
 except ImportError:
     from xml.etree import ElementTree as ET
 
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
-PY2_pre_25 = PY2 and sys.version_info < (2, 5)
-PY2_pre_26 = PY2 and sys.version_info < (2, 6)
-PY2_pre_27 = PY2 and sys.version_info < (2, 7)
 PY2_pre_279 = PY2 and sys.version_info < (2, 7, 9)
-PY3_pre_32 = PY3 and sys.version_info < (3, 2)
 
 PY2 = False
-PY25 = False
-PY26 = False
 PY27 = False
 PY3 = False
-PY32 = False
 
-if sys.version_info >= (2, 0) and sys.version_info < (3, 0):
+if (2, 0) <= sys.version_info < (3, 0):
     PY2 = True
 
-if sys.version_info >= (2, 5) and sys.version_info < (2, 6):
-    PY25 = True
-
-if sys.version_info >= (2, 6) and sys.version_info < (2, 7):
-    PY26 = True
-
-if sys.version_info >= (2, 7) and sys.version_info < (2, 8):
+if (2, 7) <= sys.version_info < (2, 8):
     PY27 = True
 
 if sys.version_info >= (3, 0):
     PY3 = True
-
-if sys.version_info >= (3, 2) and sys.version_info < (3, 3):
-    PY32 = True
-
-if PY2_pre_279 or PY3_pre_32:
-    from backports.ssl_match_hostname import match_hostname, CertificateError  # NOQA
-else:
-    # ssl module in Python >= 3.2 includes match hostname function
-    from ssl import match_hostname, CertificateError  # NOQA
 
 if PY3:
     import http.client as httplib
     from io import StringIO
     import urllib
     import urllib as urllib2
+    import base64
     # pylint: disable=no-name-in-module
     import urllib.parse as urlparse
     import xmlrpc.client as xmlrpclib
@@ -83,7 +67,10 @@ if PY3:
     from urllib.parse import urlencode as urlencode
     from os.path import relpath
 
-    from imp import reload
+    if sys.version_info >= (3, 5, 0):
+        from importlib import reload
+    else:
+        from imp import reload
 
     from builtins import bytes
     from builtins import next
@@ -133,8 +120,38 @@ if PY3:
 
     def hexadigits(s):
         # s needs to be a byte string.
-        return [format(x, "x") for x in s]
+        return [format(x, "02x") for x in s]
 
+    if sys.version_info >= (3, 1, 0):
+        # encodestring and decodestring has been deprecated since 3.1.0
+        def base64_encode_string(*args, **kwargs):
+            return base64.encodebytes(*args, **kwargs)  # NOQA
+
+        def base64_decode_string(*args, **kwargs):
+            return base64.decodebytes(*args, **kwargs)  # NOQA
+    else:
+        def base64_encode_string(*args, **kwargs):
+            return base64.encodestring(*args, **kwargs)
+
+        def base64_decode_string(*args, **kwargs):
+            return base64.decodestring(*args, **kwargs)
+
+    def assertRaisesRegex(self, *args, **kwargs):
+        import unittest
+
+        if not isinstance(self, unittest.TestCase):
+            raise ValueError('First argument "self" needs to be an instance '
+                             'of unittest.TestCase')
+        return getattr(self, 'assertRaisesRegex')(*args, **kwargs)
+
+    def assertRegex(self, *args, **kwargs):
+        import unittest
+
+        if not isinstance(self, unittest.TestCase):
+            raise ValueError('First argument "self" needs to be an instance '
+                             'of unittest.TestCase')
+
+        return getattr(self, 'assertRegex')(*args, **kwargs)
 else:
     import httplib  # NOQA
     from StringIO import StringIO  # NOQA
@@ -142,27 +159,21 @@ else:
     import urllib2  # NOQA
     import urlparse  # NOQA
     import xmlrpclib  # NOQA
+    import base64  # NOQA
     from urllib import quote as _urlquote  # NOQA
     from urllib import unquote as urlunquote  # NOQA
     from urllib import urlencode as urlencode  # NOQA
 
     from __builtin__ import reload  # NOQA
 
-    if PY25:
-        import cgi
+    parse_qs = urlparse.parse_qs
+    parse_qsl = urlparse.parse_qsl
 
-        parse_qs = cgi.parse_qs
-        parse_qsl = cgi.parse_qsl
-    else:
-        parse_qs = urlparse.parse_qs
-        parse_qsl = urlparse.parse_qsl
-
-    if not PY25:
-        from os.path import relpath  # NOQA
+    from os.path import relpath  # NOQA
 
     # Save the real value of unicode because urlquote needs it to tell the
     # difference between a unicode string and a byte string.
-    _real_unicode = unicode
+    _real_unicode = unicode  # NOQA
     basestring = unicode = str
 
     method_type = types.MethodType
@@ -203,26 +214,26 @@ else:
         # s needs to be a string.
         return [x.encode("hex") for x in s]
 
-if PY25:
-    import posixpath
+    def base64_encode_string(*args, **kwargs):
+        return base64.encodestring(*args, **kwargs)
 
-    # Taken from http://jimmyg.org/work/code/barenecessities/index.html
-    # (MIT license)
-    # pylint: disable=function-redefined
-    def relpath(path, start=posixpath.curdir):   # NOQA
-        """Return a relative version of a path"""
-        if not path:
-            raise ValueError("no path specified")
-        start_list = posixpath.abspath(start).split(posixpath.sep)
-        path_list = posixpath.abspath(path).split(posixpath.sep)
-        # Work out how much of the filepath is shared by start and path.
-        i = len(posixpath.commonprefix([start_list, path_list]))
-        rel_list = [posixpath.pardir] * (len(start_list) - i) + path_list[i:]
-        if not rel_list:
-            return posixpath.curdir
-        return posixpath.join(*rel_list)
+    def base64_decode_string(*args, **kwargs):
+        return base64.decodestring(*args, **kwargs)
 
-if PY27 or PY3:
-    unittest2_required = False
-else:
-    unittest2_required = True
+    def assertRaisesRegex(self, *args, **kwargs):
+        import unittest
+
+        if not isinstance(self, unittest.TestCase):
+            raise ValueError('First argument "self" needs to be an instance '
+                             'of unittest.TestCase')
+
+        return getattr(self, 'assertRaisesRegex')(*args, **kwargs)
+
+    def assertRegex(self, *args, **kwargs):
+        import unittest
+
+        if not isinstance(self, unittest.TestCase):
+            raise ValueError('First argument "self" needs to be an instance '
+                             'of unittest.TestCase')
+
+        return getattr(self, 'assertRegex')(*args, **kwargs)

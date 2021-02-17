@@ -21,17 +21,20 @@ from __future__ import with_statement
 
 import errno
 import os
+import time
 import shutil
-import sys
+import tempfile
+import threading
+from hashlib import sha256
 
 try:
-    import lockfile
-    from lockfile import LockTimeout, mkdirlockfile
+    import fasteners
 except ImportError:
-    raise ImportError('Missing lockfile dependency, you can install it '
-                      'using pip: pip install lockfile')
+    raise ImportError('Missing fasteners dependency, you can install it '
+                      'using pip: pip install fasteners')
 
 from libcloud.utils.files import read_in_chunks
+from libcloud.utils.files import exhaust_iterator
 from libcloud.utils.py3 import relpath
 from libcloud.utils.py3 import u
 from libcloud.common.base import Connection
@@ -51,19 +54,53 @@ class LockLocalStorage(object):
     """
     A class to help in locking a local path before being updated
     """
-    def __init__(self, path):
+
+    def __init__(self, path, timeout=5):
         self.path = path
-        self.lock = mkdirlockfile.MkdirLockFile(self.path, threaded=True)
+        self.lock_acquire_timeout = timeout
+
+        self.ipc_lock_path = os.path.join(tempfile.gettempdir(), "%s.lock" % (
+            sha256(path.encode("utf-8")).hexdigest()))
+
+        # NOTE: fasteners.InterProcess lock has no guarantees regards usage by
+        # multiple threads in a single process which means we also need to
+        # use threading.lock for that purpose
+        self.thread_lock = threading.Lock()
+        self.ipc_lock = fasteners.InterProcessLock(self.ipc_lock_path)
 
     def __enter__(self):
-        try:
-            self.lock.acquire(timeout=0.1)
-        except LockTimeout:
-            raise LibcloudError('Lock timeout')
+        lock_acquire_timeout = self.lock_acquire_timeout
+        start_time = int(time.time())
+        end_time = start_time + lock_acquire_timeout
+
+        while int(time.time()) < end_time:
+            # pylint: disable=assignment-from-no-return
+            success = self.thread_lock.acquire(blocking=False)
+            # enable: disable=assignment-from-no-return
+
+            if success:
+                break
+
+        if not success:
+            raise LibcloudError("Failed to acquire thread lock for path %s "
+                                "in %s seconds" % (self.path,
+                                                   lock_acquire_timeout))
+
+        success = self.ipc_lock.acquire(blocking=True,
+                                        timeout=lock_acquire_timeout)
+
+        if not success:
+            raise LibcloudError("Failed to acquire IPC lock (%s) for path %s "
+                                "in %s seconds" %
+                                (self.ipc_lock_path, self.path,
+                                 lock_acquire_timeout))
 
     def __exit__(self, type, value, traceback):
-        if self.lock.is_locked():
-            self.lock.release()
+        if self.thread_lock.locked():
+            self.thread_lock.release()
+
+        if self.ipc_lock.exists():
+            self.ipc_lock.release()
 
         if value is not None:
             raise value
@@ -101,8 +138,7 @@ class LocalStorageDriver(StorageDriver):
 
         try:
             os.makedirs(path)
-        except OSError:
-            exp = sys.exc_info()[1]
+        except OSError as exp:
             if exp.errno == errno.EEXIST and not ignore_existing:
                 raise exp
 
@@ -221,18 +257,27 @@ class LocalStorageDriver(StorageDriver):
                 object_name = relpath(full_path, start=cpath)
                 yield self._make_object(container, object_name)
 
-    def iterate_container_objects(self, container):
+    def iterate_container_objects(self, container, prefix=None,
+                                  ex_prefix=None):
         """
         Returns a generator of objects for the given container.
 
         :param container: Container instance
         :type container: :class:`Container`
 
+        :param prefix: Filter objects starting with a prefix.
+        :type  prefix: ``str``
+
+        :param ex_prefix: (Deprecated.) Filter objects starting with a prefix.
+        :type  ex_prefix: ``str``
+
         :return: A generator of Object instances.
         :rtype: ``generator`` of :class:`Object`
         """
+        prefix = self._normalize_prefix_argument(prefix, ex_prefix)
 
-        return self._get_objects(container)
+        objects = self._get_objects(container)
+        return self._filter_listed_container_objects(objects, prefix)
 
     def get_container(self, container_name):
         """
@@ -306,7 +351,6 @@ class LocalStorageDriver(StorageDriver):
         """
 
         path = self.get_container_cdn_url(container)
-        lockfile.MkdirFileLock(path, threaded=True)
 
         with LockLocalStorage(path):
             self._make_path(path)
@@ -330,7 +374,7 @@ class LocalStorageDriver(StorageDriver):
             try:
                 obj_file = open(path, 'w')
                 obj_file.close()
-            except:
+            except Exception:
                 return False
 
         return True
@@ -359,25 +403,12 @@ class LocalStorageDriver(StorageDriver):
         otherwise.
         :rtype: ``bool``
         """
-
         obj_path = self.get_object_cdn_url(obj)
-        base_name = os.path.basename(destination_path)
 
-        if not base_name and not os.path.exists(destination_path):
-            raise LibcloudError(
-                value='Path %s does not exist' % (destination_path),
-                driver=self)
-
-        if not base_name:
-            file_path = os.path.join(destination_path, obj.name)
-        else:
-            file_path = destination_path
-
-        if os.path.exists(file_path) and not overwrite_existing:
-            raise LibcloudError(
-                value='File %s already exists, but ' % (file_path) +
-                'overwrite_existing=False',
-                driver=self)
+        file_path = self._get_obj_file_path(
+            obj=obj,
+            destination_path=destination_path,
+            overwrite_existing=overwrite_existing)
 
         try:
             shutil.copy(obj_path, file_path)
@@ -409,8 +440,50 @@ class LocalStorageDriver(StorageDriver):
             for data in read_in_chunks(obj_file, chunk_size=chunk_size):
                 yield data
 
+    def download_object_range(self, obj, destination_path, start_bytes,
+                              end_bytes=None, overwrite_existing=False,
+                              delete_on_failure=True):
+        self._validate_start_and_end_bytes(start_bytes=start_bytes,
+                                           end_bytes=end_bytes)
+
+        file_path = self._get_obj_file_path(
+            obj=obj,
+            destination_path=destination_path,
+            overwrite_existing=overwrite_existing)
+
+        iterator = self.download_object_range_as_stream(
+            obj=obj,
+            start_bytes=start_bytes,
+            end_bytes=end_bytes)
+
+        with open(file_path, 'wb') as fp:
+            fp.write(exhaust_iterator(iterator))
+
+        return True
+
+    def download_object_range_as_stream(self, obj, start_bytes, end_bytes=None,
+                                        chunk_size=None):
+        self._validate_start_and_end_bytes(start_bytes=start_bytes,
+                                           end_bytes=end_bytes)
+
+        path = self.get_object_cdn_url(obj)
+        with open(path, 'rb') as obj_file:
+            file_size = len(obj_file.read())
+
+            if end_bytes and end_bytes > file_size:
+                raise ValueError('end_bytes is larger than file size')
+
+            if end_bytes is None:
+                read_bytes = (file_size - start_bytes) + 1
+            else:
+                read_bytes = (end_bytes - start_bytes)
+
+            obj_file.seek(start_bytes)
+            data = obj_file.read(read_bytes)
+            yield data
+
     def upload_object(self, file_path, container, object_name, extra=None,
-                      verify_hash=True):
+                      verify_hash=True, headers=None):
         """
         Upload an object currently located on a disk.
 
@@ -428,6 +501,9 @@ class LocalStorageDriver(StorageDriver):
 
         :param extra: (optional) Extra attributes (driver specific).
         :type extra: ``dict``
+
+        :param headers: (optional) Headers (driver specific).
+        :type headers: ``dict``
 
         :rtype: ``object``
         """
@@ -447,7 +523,7 @@ class LocalStorageDriver(StorageDriver):
 
     def upload_object_via_stream(self, iterator, container,
                                  object_name,
-                                 extra=None):
+                                 extra=None, headers=None):
         """
         Upload an object using an iterator.
 
@@ -479,6 +555,9 @@ class LocalStorageDriver(StorageDriver):
         :param extra: (optional) Extra attributes (driver specific). Note:
             This dictionary must contain a 'content_type' key which represents
             a content type of the stored object.
+
+        :param headers: (optional) Headers (driver specific).
+        :type headers: ``dict``
 
         :rtype: ``object``
         """
@@ -520,8 +599,7 @@ class LocalStorageDriver(StorageDriver):
         while path != container_url:
             try:
                 os.rmdir(path)
-            except OSError:
-                exp = sys.exc_info()[1]
+            except OSError as exp:
                 if exp.errno == errno.ENOTEMPTY:
                     break
                 raise exp
@@ -547,8 +625,7 @@ class LocalStorageDriver(StorageDriver):
 
         try:
             self._make_path(path, ignore_existing=False)
-        except OSError:
-            exp = sys.exc_info()[1]
+        except OSError as exp:
             if exp.errno == errno.EEXIST:
                 raise ContainerAlreadyExistsError(
                     value='Container with this name already exists. The name '
@@ -591,3 +668,26 @@ class LocalStorageDriver(StorageDriver):
                 return False
 
         return True
+
+    def _get_obj_file_path(self, obj, destination_path,
+                           overwrite_existing=False):
+        # type: (Object, str, bool) -> str
+        base_name = os.path.basename(destination_path)
+
+        if not base_name and not os.path.exists(destination_path):
+            raise LibcloudError(
+                value='Path %s does not exist' % (destination_path),
+                driver=self)
+
+        if not base_name:
+            file_path = os.path.join(destination_path, obj.name)
+        else:
+            file_path = destination_path
+
+        if os.path.exists(file_path) and not overwrite_existing:
+            raise LibcloudError(
+                value='File %s already exists, but ' % (file_path) +
+                'overwrite_existing=False',
+                driver=self)
+
+        return file_path

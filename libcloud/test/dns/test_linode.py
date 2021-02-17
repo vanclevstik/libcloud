@@ -20,20 +20,20 @@ from libcloud.utils.py3 import httplib
 from libcloud.common.linode import LinodeException
 from libcloud.dns.types import RecordType, ZoneDoesNotExistError
 from libcloud.dns.types import RecordDoesNotExistError
-from libcloud.dns.drivers.linode import LinodeDNSDriver
+from libcloud.dns.drivers.linode import LinodeDNSDriver, LinodeDNSDriverV3
 
 from libcloud.test import MockHttp
 from libcloud.test.file_fixtures import DNSFileFixtures
-from libcloud.test.secrets import DNS_PARAMS_LINODE
+from libcloud.test.secrets import DNS_PARAMS_LINODE, DNS_KEYWORD_PARAMS_LINODE
 
 
 class LinodeTests(unittest.TestCase):
     def setUp(self):
-        LinodeDNSDriver.connectionCls.conn_classes = (
-            None, LinodeMockHttp)
+        LinodeDNSDriverV3.connectionCls.conn_class = LinodeMockHttp
         LinodeMockHttp.use_param = 'api_action'
         LinodeMockHttp.type = None
-        self.driver = LinodeDNSDriver(*DNS_PARAMS_LINODE)
+        self.driver = LinodeDNSDriver(*DNS_PARAMS_LINODE,
+                                      **DNS_KEYWORD_PARAMS_LINODE)
 
     def assertHasKeys(self, dictionary, keys):
         for key in keys:
@@ -53,7 +53,7 @@ class LinodeTests(unittest.TestCase):
         self.assertEqual(zone.id, '5093')
         self.assertEqual(zone.type, 'master')
         self.assertEqual(zone.domain, 'linode.com')
-        self.assertEqual(zone.ttl, None)
+        self.assertIsNone(zone.ttl)
         self.assertHasKeys(zone.extra, ['description', 'SOA_Email', 'status'])
 
     def test_list_records_success(self):
@@ -69,14 +69,21 @@ class LinodeTests(unittest.TestCase):
         self.assertHasKeys(arecord.extra, ['protocol', 'ttl_sec', 'port',
                                            'weight'])
 
+        srvrecord = records[1]
+        self.assertEqual(srvrecord.id, '3585141')
+        self.assertEqual(srvrecord.name, '_minecraft._udp')
+        self.assertEqual(srvrecord.type, RecordType.SRV)
+        self.assertEqual(srvrecord.data, 'mc.linode.com')
+        self.assertHasKeys(srvrecord.extra, ['protocol', 'ttl_sec', 'port',
+                                             'priority', 'weight'])
+
     def test_list_records_zone_does_not_exist(self):
         zone = self.driver.list_zones()[0]
 
         LinodeMockHttp.type = 'ZONE_DOES_NOT_EXIST'
         try:
             self.driver.list_records(zone=zone)
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, zone.id)
         else:
             self.fail('Exception was not thrown')
@@ -88,7 +95,7 @@ class LinodeTests(unittest.TestCase):
         self.assertEqual(zone.id, '5093')
         self.assertEqual(zone.type, 'master')
         self.assertEqual(zone.domain, 'linode.com')
-        self.assertEqual(zone.ttl, None)
+        self.assertIsNone(zone.ttl)
         self.assertHasKeys(zone.extra, ['description', 'SOA_Email', 'status'])
 
     def test_get_zone_does_not_exist(self):
@@ -96,8 +103,7 @@ class LinodeTests(unittest.TestCase):
 
         try:
             self.driver.get_zone(zone_id='4444')
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, '4444')
         else:
             self.fail('Exception was not thrown')
@@ -206,8 +212,7 @@ class LinodeTests(unittest.TestCase):
 
         try:
             self.driver.delete_zone(zone=zone)
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, zone.id)
         else:
             self.fail('Exception was not thrown')
@@ -226,8 +231,7 @@ class LinodeTests(unittest.TestCase):
 
         try:
             self.driver.delete_record(record=record)
-        except RecordDoesNotExistError:
-            e = sys.exc_info()[1]
+        except RecordDoesNotExistError as e:
             self.assertEqual(e.record_id, record.id)
         else:
             self.fail('Exception was not thrown')

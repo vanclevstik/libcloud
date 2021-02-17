@@ -25,11 +25,7 @@ __docformat__ = 'epytext'
 from base64 import b64encode
 import hashlib
 
-try:
-    from lxml import etree as ET
-except ImportError:
-    from xml.etree import ElementTree as ET
-
+from libcloud.utils.py3 import ET
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import next
 from libcloud.utils.py3 import b
@@ -133,7 +129,7 @@ class OpenNebulaResponse(XmlResponse):
         :return: True is success, else False.
         """
         i = int(self.status)
-        return i >= 200 and i <= 299
+        return 200 <= i <= 299
 
     def parse_error(self):
         """
@@ -319,7 +315,7 @@ class OpenNebulaNodeDriver(NodeDriver):
                     (api_version))
             return super(OpenNebulaNodeDriver, cls).__new__(cls)
 
-    def create_node(self, **kwargs):
+    def create_node(self, name, size, image, networks=None):
         """
         Create a new OpenNebula node.
 
@@ -333,22 +329,22 @@ class OpenNebulaNodeDriver(NodeDriver):
         compute = ET.Element('COMPUTE')
 
         name = ET.SubElement(compute, 'NAME')
-        name.text = kwargs['name']
+        name.text = name
 
         instance_type = ET.SubElement(compute, 'INSTANCE_TYPE')
-        instance_type.text = kwargs['size'].name
+        instance_type.text = size.name
 
         storage = ET.SubElement(compute, 'STORAGE')
         ET.SubElement(storage,
                       'DISK',
-                      {'image': '%s' % (str(kwargs['image'].id))})
+                      {'image': '%s' % (str(image.id))})
 
-        if 'networks' in kwargs:
-            if not isinstance(kwargs['networks'], list):
-                kwargs['networks'] = [kwargs['networks']]
+        if networks:
+            if not isinstance(networks, list):
+                networks = [networks]
 
             networkGroup = ET.SubElement(compute, 'NETWORK')
-            for network in kwargs['networks']:
+            for network in networks:
                 if network.address:
                     ET.SubElement(networkGroup, 'NIC',
                                   {'network': '%s' % (str(network.id)),
@@ -662,7 +658,7 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
 
     name = 'OpenNebula (v2.0 - v2.2)'
 
-    def create_node(self, **kwargs):
+    def create_node(self, name, size, image, networks=None, context=None):
         """
         Create a new OpenNebula node.
 
@@ -683,21 +679,21 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
         compute = ET.Element('COMPUTE')
 
         name = ET.SubElement(compute, 'NAME')
-        name.text = kwargs['name']
+        name.text = name
 
         instance_type = ET.SubElement(compute, 'INSTANCE_TYPE')
-        instance_type.text = kwargs['size'].name
+        instance_type.text = size.name
 
         disk = ET.SubElement(compute, 'DISK')
         ET.SubElement(disk,
                       'STORAGE',
-                      {'href': '/storage/%s' % (str(kwargs['image'].id))})
+                      {'href': '/storage/%s' % (str(image.id))})
 
-        if 'networks' in kwargs:
-            if not isinstance(kwargs['networks'], list):
-                kwargs['networks'] = [kwargs['networks']]
+        if networks:
+            if not isinstance(networks, list):
+                networks = [networks]
 
-            for network in kwargs['networks']:
+            for network in networks:
                 nic = ET.SubElement(compute, 'NIC')
                 ET.SubElement(nic, 'NETWORK',
                               {'href': '/network/%s' % (str(network.id))})
@@ -705,12 +701,11 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
                     ip_line = ET.SubElement(nic, 'IP')
                     ip_line.text = network.address
 
-        if 'context' in kwargs:
-            if isinstance(kwargs['context'], dict):
-                contextGroup = ET.SubElement(compute, 'CONTEXT')
-                for key, value in list(kwargs['context'].items()):
-                    context = ET.SubElement(contextGroup, key.upper())
-                    context.text = value
+        if context and isinstance(context, dict):
+            contextGroup = ET.SubElement(compute, 'CONTEXT')
+            for key, value in list(context.items()):
+                context = ET.SubElement(contextGroup, key.upper())
+                context.text = value
 
         xml = ET.tostring(compute)
         node = self.connection.request('/compute', method='POST',
@@ -1080,13 +1075,13 @@ class OpenNebula_3_2_NodeDriver(OpenNebula_3_0_NodeDriver):
         values = {}
 
         for attribute_name, attribute_type, alias in attributes:
-                key = alias if alias else attribute_name.upper()
-                value = element.findtext(key)
+            key = alias if alias else attribute_name.upper()
+            value = element.findtext(key)
 
-                if value is not None:
-                    value = attribute_type(value)
+            if value is not None:
+                value = attribute_type(value)
 
-                values[attribute_name] = value
+            values[attribute_name] = value
 
         return values
 

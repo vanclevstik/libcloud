@@ -30,13 +30,16 @@ from libcloud.compute.ssh import have_paramiko
 
 from libcloud.utils.py3 import StringIO
 from libcloud.utils.py3 import u
+from libcloud.utils.py3 import assertRaisesRegex
 
-from mock import patch, Mock, MagicMock
+from mock import patch, Mock, MagicMock, call
 
 if not have_paramiko:
     ParamikoSSHClient = None  # NOQA
+    paramiko_version = '0.0.0'
 else:
     import paramiko
+    paramiko_version = paramiko.__version__
 
 
 @unittest.skipIf(not have_paramiko, 'Skipping because paramiko is not available')
@@ -56,6 +59,10 @@ class ParamikoSSHClientTests(LibcloudTestCase):
         os.environ['LIBCLOUD_DEBUG'] = self.tmp_file
         _init_once()
         self.ssh_cli = ParamikoSSHClient(**conn_params)
+
+    def tearDown(self):
+        if 'LIBCLOUD_DEBUG' in os.environ:
+            del os.environ['LIBCLOUD_DEBUG']
 
     @patch('paramiko.SSHClient', Mock)
     def test_create_with_password(self):
@@ -99,13 +106,13 @@ class ParamikoSSHClientTests(LibcloudTestCase):
 
         expected_msg = ('key_files and key_material arguments are mutually '
                         'exclusive')
-        self.assertRaisesRegexp(ValueError, expected_msg,
-                                ParamikoSSHClient, **conn_params)
+        assertRaisesRegex(self, ValueError, expected_msg,
+                          ParamikoSSHClient, **conn_params)
 
     @patch('paramiko.SSHClient', Mock)
     def test_key_material_argument(self):
         path = os.path.join(os.path.dirname(__file__),
-                            'fixtures', 'misc', 'dummy_rsa')
+                            'fixtures', 'misc', 'test_rsa.key')
 
         with open(path, 'r') as fp:
             private_key = fp.read()
@@ -135,8 +142,209 @@ class ParamikoSSHClientTests(LibcloudTestCase):
         mock = ParamikoSSHClient(**conn_params)
 
         expected_msg = 'Invalid or unsupported key type'
-        self.assertRaisesRegexp(paramiko.ssh_exception.SSHException,
-                                expected_msg, mock.connect)
+        assertRaisesRegex(self, paramiko.ssh_exception.SSHException,
+                          expected_msg, mock.connect)
+
+    @patch('paramiko.SSHClient', Mock)
+    @unittest.skipIf(paramiko_version >= '2.7.0',
+                     'New versions of paramiko support OPENSSH key format')
+    def test_key_file_non_pem_format_error(self):
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_rsa_non_pem_format.key')
+
+        # Supplied as key_material
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu',
+                       'key_material': private_key}
+
+        mock = ParamikoSSHClient(**conn_params)
+
+        expected_msg = 'Invalid or unsupported key type'
+        assertRaisesRegex(self, paramiko.ssh_exception.SSHException,
+                          expected_msg, mock.connect)
+
+    @patch('paramiko.SSHClient', Mock)
+    def test_password_protected_key_no_password_provided_1(self):
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_rsa_2048b_pass_foobar.key')
+
+        # Supplied as key_material
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu',
+                       'key_material': private_key}
+
+        mock = ParamikoSSHClient(**conn_params)
+
+        expected_msg = 'private key file is encrypted'
+        assertRaisesRegex(self, paramiko.ssh_exception.PasswordRequiredException,
+                          expected_msg, mock.connect)
+
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu',
+                       'key_files': path}
+
+        mock = ParamikoSSHClient(**conn_params)
+
+        expected_msg = 'private key file is encrypted'
+        assertRaisesRegex(self, paramiko.ssh_exception.PasswordRequiredException,
+                          expected_msg, mock.connect)
+
+    @patch('paramiko.SSHClient', Mock)
+    def test_password_protected_key_no_password_provided_2(self):
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_rsa_2048b_pass_foobar.key')
+
+        # Supplied as key_material
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu',
+                       'key_material': private_key,
+                       'password': 'invalid'}
+
+        mock = ParamikoSSHClient(**conn_params)
+
+        expected_msg = 'OpenSSH private key file checkints do not match'
+        assertRaisesRegex(self, paramiko.ssh_exception.SSHException,
+                          expected_msg, mock.connect)
+
+    @patch('paramiko.SSHClient', Mock)
+    def test_password_protected_key_valid_password_provided(self):
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_rsa_2048b_pass_foobar.key')
+
+        # Supplied as key_material
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu',
+                       'key_material': private_key,
+                       'password': 'foobar'}
+
+        mock = ParamikoSSHClient(**conn_params)
+        self.assertTrue(mock.connect())
+
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu',
+                       'key_files': path,
+                       'password': 'foobar'}
+
+        mock = ParamikoSSHClient(**conn_params)
+        self.assertTrue(mock.connect())
+
+    @patch('paramiko.SSHClient', Mock)
+    def test_ed25519_key_type(self):
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_ed25519.key')
+
+        # Supplied as key_material
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu',
+                       'key_material': private_key}
+
+        mock = ParamikoSSHClient(**conn_params)
+        self.assertTrue(mock.connect())
+
+    def test_key_material_valid_pem_keys_invalid_header_auto_conversion(self):
+        # Test a scenario where valid PEM keys with invalid headers which is
+        # not recognized by paramiko are automatically converted in a format
+        # which is recognized by paramiko
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+
+        # 1. RSA key type with header which is not supported by paramiko
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_rsa_non_paramiko_recognized_header.key')
+
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        pkey = client._get_pkey_object(key=private_key)
+        self.assertTrue(pkey)
+        self.assertTrue(isinstance(pkey, paramiko.RSAKey))
+
+        # 2. DSA key type with header which is not supported by paramiko
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_dsa_non_paramiko_recognized_header.key')
+
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        pkey = client._get_pkey_object(key=private_key)
+        self.assertTrue(pkey)
+        self.assertTrue(isinstance(pkey, paramiko.DSSKey))
+
+        # 3. ECDSA key type with header which is not supported by paramiko
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_ecdsa_non_paramiko_recognized_header.key')
+
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        pkey = client._get_pkey_object(key=private_key)
+        self.assertTrue(pkey)
+        self.assertTrue(isinstance(pkey, paramiko.ECDSAKey))
+
+    def test_key_material_valid_pem_keys(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+
+        # 1. RSA key type with header which is not supported by paramiko
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_rsa.key')
+
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        pkey = client._get_pkey_object(key=private_key)
+        self.assertTrue(pkey)
+        self.assertTrue(isinstance(pkey, paramiko.RSAKey))
+
+        # 2. DSA key type with header which is not supported by paramiko
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_dsa.key')
+
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        pkey = client._get_pkey_object(key=private_key)
+        self.assertTrue(pkey)
+        self.assertTrue(isinstance(pkey, paramiko.DSSKey))
+
+        # 3. ECDSA key type with header which is not supported by paramiko
+        path = os.path.join(os.path.dirname(__file__),
+                            'fixtures', 'misc',
+                            'test_ecdsa.key')
+
+        with open(path, 'r') as fp:
+            private_key = fp.read()
+
+        pkey = client._get_pkey_object(key=private_key)
+        self.assertTrue(pkey)
+        self.assertTrue(isinstance(pkey, paramiko.ECDSAKey))
 
     @patch('paramiko.SSHClient', Mock)
     def test_create_with_key(self):
@@ -209,6 +417,7 @@ class ParamikoSSHClientTests(LibcloudTestCase):
         # Connect behavior
         mock.connect()
         mock_cli = mock.client  # The actual mocked object: SSHClient
+
         expected_conn = {'username': 'ubuntu',
                          'key_filename': '~/.ssh/ubuntu_ssh',
                          'allow_agent': False,
@@ -323,8 +532,8 @@ class ParamikoSSHClientTests(LibcloudTestCase):
         chan.recv.side_effect = ['\xF0', '\x90', '\x8D', '\x88']
 
         stdout = client._consume_stdout(chan).getvalue()
-        self.assertEqual('\xf0\x90\x8d\x88', stdout.encode('utf-8'))
-        self.assertTrue(len(stdout) in [1, 2])
+        self.assertEqual('ð\x90\x8d\x88', stdout)
+        self.assertEqual(len(stdout), 4)
 
     def test_consume_stderr_chunk_contains_part_of_multi_byte_utf8_character(self):
         conn_params = {'hostname': 'dummy.host.org',
@@ -337,8 +546,276 @@ class ParamikoSSHClientTests(LibcloudTestCase):
         chan.recv_stderr.side_effect = ['\xF0', '\x90', '\x8D', '\x88']
 
         stderr = client._consume_stderr(chan).getvalue()
-        self.assertEqual('\xf0\x90\x8d\x88', stderr.encode('utf-8'))
-        self.assertTrue(len(stderr) in [1, 2])
+        self.assertEqual('ð\x90\x8d\x88', stderr)
+        self.assertEqual(len(stderr), 4)
+
+    def test_consume_stdout_chunk_contains_non_utf8_character(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+        client.CHUNK_SIZE = 1
+
+        chan = Mock()
+        chan.recv_ready.side_effect = [True, True, True, False]
+        chan.recv.side_effect = ['🤦'.encode('utf-32'), 'a', 'b']
+
+        stdout = client._consume_stdout(chan).getvalue()
+        self.assertEqual('\x00\x00&\x01\x00ab', stdout)
+        self.assertEqual(len(stdout), 7)
+
+    def test_consume_stderr_chunk_contains_non_utf8_character(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+        client.CHUNK_SIZE = 1
+
+        chan = Mock()
+        chan.recv_stderr_ready.side_effect = [True, True, True, False]
+        chan.recv_stderr.side_effect = ['🤦'.encode('utf-32'), 'a', 'b']
+
+        stderr = client._consume_stderr(chan).getvalue()
+        self.assertEqual('\x00\x00&\x01\x00ab', stderr)
+        self.assertEqual(len(stderr), 7)
+
+    def test_keep_alive_and_compression(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+
+        mock_transport = Mock()
+        client.client.get_transport = Mock(return_value=mock_transport)
+
+        transport = client._get_transport()
+        self.assertEqual(transport.set_keepalive.call_count, 0)
+        self.assertEqual(transport.use_compression.call_count, 0)
+
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu',
+                       'keep_alive': 15,
+                       'use_compression': True}
+        client = ParamikoSSHClient(**conn_params)
+
+        mock_transport = Mock()
+        client.client.get_transport = Mock(return_value=mock_transport)
+
+        transport = client._get_transport()
+        self.assertEqual(transport.set_keepalive.call_count, 1)
+        self.assertEqual(transport.use_compression.call_count, 1)
+
+    def test_put_absolute_path(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+
+        mock_client = Mock()
+        mock_sftp_client = Mock()
+        mock_transport = Mock()
+
+        mock_client.get_transport.return_value = mock_transport
+        mock_sftp_client.getcwd.return_value = '/mock/cwd'
+        client.client = mock_client
+        client.sftp_client = mock_sftp_client
+
+        result = client.put(path='/test/remote/path.txt', contents='foo bar', chmod=455, mode='w')
+        self.assertEqual(result, '/test/remote/path.txt')
+
+        calls = [
+            call('/'),
+            call('test'),
+            call('remote')
+        ]
+        mock_sftp_client.chdir.assert_has_calls(calls, any_order=False)
+
+        calls = [
+            call('path.txt', mode='w'),
+            call().write('foo bar'),
+            call().chmod(455),
+            call().close()
+        ]
+        mock_sftp_client.file.assert_has_calls(calls, any_order=False)
+
+    def test_put_absolute_path_windows(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+
+        mock_client = Mock()
+        mock_sftp_client = Mock()
+        mock_transport = Mock()
+
+        mock_client.get_transport.return_value = mock_transport
+        mock_sftp_client.getcwd.return_value = 'C:\\Administrator'
+        client.client = mock_client
+        client.sftp_client = mock_sftp_client
+
+        result = client.put(path='C:\\users\\user1\\1.txt', contents='foo bar', chmod=455, mode='w')
+        self.assertEqual(result, 'C:\\users\\user1\\1.txt')
+
+        result = client.put(path='\\users\\user1\\1.txt', contents='foo bar', chmod=455, mode='w')
+        self.assertEqual(result, '\\users\\user1\\1.txt')
+
+        result = client.put(path='1.txt', contents='foo bar', chmod=455, mode='w')
+        self.assertEqual(result, 'C:\\Administrator\\1.txt')
+
+        mock_client.get_transport.return_value = mock_transport
+        mock_sftp_client.getcwd.return_value = '/C:\\User1'
+        client.client = mock_client
+        client.sftp_client = mock_sftp_client
+
+        result = client.put(path='1.txt', contents='foo bar', chmod=455, mode='w')
+        self.assertEqual(result, 'C:\\User1\\1.txt')
+
+    def test_put_relative_path(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+
+        mock_client = Mock()
+        mock_sftp_client = Mock()
+        mock_transport = Mock()
+
+        mock_client.get_transport.return_value = mock_transport
+        mock_sftp_client.getcwd.return_value = '/mock/cwd'
+        client.client = mock_client
+        client.sftp_client = mock_sftp_client
+
+        result = client.put(path='path2.txt', contents='foo bar 2', chmod=466, mode='a')
+        self.assertEqual(result, '/mock/cwd/path2.txt')
+
+        calls = [
+            call('.')
+        ]
+        mock_sftp_client.chdir.assert_has_calls(calls, any_order=False)
+
+        calls = [
+            call('path2.txt', mode='a'),
+            call().write('foo bar 2'),
+            call().chmod(466),
+            call().close()
+        ]
+        mock_sftp_client.file.assert_has_calls(calls, any_order=False)
+
+    def test_putfo_absolute_path(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+
+        mock_client = Mock()
+        mock_sftp_client = Mock()
+        mock_transport = Mock()
+
+        mock_client.get_transport.return_value = mock_transport
+        mock_sftp_client.getcwd.return_value = '/mock/cwd'
+        client.client = mock_client
+        client.sftp_client = mock_sftp_client
+
+        mock_fo = StringIO('mock stream data 1')
+
+        result = client.putfo(path='/test/remote/path.txt', fo=mock_fo, chmod=455)
+        self.assertEqual(result, '/test/remote/path.txt')
+
+        calls = [
+            call('/'),
+            call('test'),
+            call('remote')
+        ]
+        mock_sftp_client.chdir.assert_has_calls(calls, any_order=False)
+
+        mock_sftp_client.putfo.assert_called_once_with(mock_fo, "/test/remote/path.txt")
+
+        calls = [
+            call('path.txt'),
+            call().chmod(455),
+            call().close()
+        ]
+        mock_sftp_client.file.assert_has_calls(calls, any_order=False)
+
+    def test_putfo_relative_path(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+
+        mock_client = Mock()
+        mock_sftp_client = Mock()
+        mock_transport = Mock()
+
+        mock_client.get_transport.return_value = mock_transport
+        mock_sftp_client.getcwd.return_value = '/mock/cwd'
+        client.client = mock_client
+        client.sftp_client = mock_sftp_client
+
+        mock_fo = StringIO('mock stream data 2')
+
+        result = client.putfo(path='path2.txt', fo=mock_fo, chmod=466)
+        self.assertEqual(result, '/mock/cwd/path2.txt')
+
+        calls = [
+            call('.')
+        ]
+        mock_sftp_client.chdir.assert_has_calls(calls, any_order=False)
+
+        mock_sftp_client.putfo.assert_called_once_with(mock_fo, "path2.txt")
+
+        calls = [
+            call('path2.txt'),
+            call().chmod(466),
+            call().close()
+        ]
+        mock_sftp_client.file.assert_has_calls(calls, any_order=False)
+
+    def test_get_sftp_client(self):
+        conn_params = {'hostname': 'dummy.host.org',
+                       'username': 'ubuntu'}
+        client = ParamikoSSHClient(**conn_params)
+
+        # 1. sftp connection is not opened yet, new one should be opened
+        mock_client = Mock()
+        mock_sft_client = Mock()
+        mock_client.open_sftp.return_value = mock_sft_client
+        client.client = mock_client
+
+        self.assertEqual(mock_client.open_sftp.call_count, 0)
+        self.assertEqual(client._get_sftp_client(), mock_sft_client)
+        self.assertEqual(mock_client.open_sftp.call_count, 1)
+
+        # 2. existing sftp connection which is already opened is re-used
+        mock_client = Mock()
+        mock_sft_client = Mock()
+        client.client = mock_client
+        client.sftp_client = mock_sft_client
+
+        self.assertEqual(mock_client.open_sftp.call_count, 0)
+        self.assertEqual(client._get_sftp_client(), mock_sft_client)
+        self.assertEqual(mock_client.open_sftp.call_count, 0)
+
+        # 3. existing connection is already opened, but it throws
+        # "socket closed" error, we should establish a new one
+        mock_client = Mock()
+        mock_sftp_client = Mock()
+
+        client.client = mock_client
+        client.sftp_client = mock_sftp_client
+
+        mock_sftp_client.listdir.side_effect = OSError("Socket is closed")
+
+        self.assertEqual(mock_client.open_sftp.call_count, 0)
+        sftp_client = client._get_sftp_client()
+        self.assertTrue(sftp_client != mock_sft_client)
+        self.assertTrue(sftp_client)
+        self.assertTrue(client._get_sftp_client())
+        self.assertEqual(mock_client.open_sftp.call_count, 1)
+
+        # 4. fatal exceptions should be propagated
+        mock_client = Mock()
+        mock_sftp_client = Mock()
+
+        client.client = mock_client
+        client.sftp_client = mock_sftp_client
+
+        mock_sftp_client.listdir.side_effect = Exception("Fatal exception")
+
+        self.assertEqual(mock_client.open_sftp.call_count, 0)
+        self.assertRaisesRegex(Exception, "Fatal exception", client._get_sftp_client)
 
 
 class ShellOutSSHClientTests(LibcloudTestCase):
@@ -347,8 +824,7 @@ class ShellOutSSHClientTests(LibcloudTestCase):
         try:
             ShellOutSSHClient(hostname='localhost', username='foo',
                               password='bar')
-        except ValueError:
-            e = sys.exc_info()[1]
+        except ValueError as e:
             msg = str(e)
             self.assertTrue('ShellOutSSHClient only supports key auth' in msg)
         else:
@@ -367,8 +843,7 @@ class ShellOutSSHClientTests(LibcloudTestCase):
         with patch('subprocess.Popen', mock_popen):
             try:
                 ShellOutSSHClient(hostname='localhost', username='foo')
-            except ValueError:
-                e = sys.exc_info()[1]
+            except ValueError as e:
                 msg = str(e)
                 self.assertTrue('ssh client is not available' in msg)
             else:

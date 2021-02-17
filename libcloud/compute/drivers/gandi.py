@@ -15,7 +15,6 @@
 """
 Gandi driver for compute
 """
-import sys
 from datetime import datetime
 
 from libcloud.common.gandi import BaseGandiDriver, GandiException,\
@@ -93,16 +92,14 @@ class GandiNodeDriver(BaseGandiDriver, NodeDriver):
         """
         @inherits: :class:`NodeDriver.__init__`
         """
-        super(BaseGandiDriver, self).__init__(*args, **kwargs)
+        super(GandiNodeDriver, self).__init__(*args, **kwargs)
 
     def _resource_info(self, type, id):
         try:
             obj = self.connection.request('hosting.%s.info' % type, int(id))
             return obj.object
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             raise GandiException(1003, e)
-        return None
 
     def _node_info(self, id):
         return self._resource_info('vm', id)
@@ -233,7 +230,8 @@ class GandiNodeDriver(BaseGandiDriver, NodeDriver):
         raise NotImplementedError(
             'deploy_node not implemented for gandi driver')
 
-    def create_node(self, **kwargs):
+    def create_node(self, name, size, image, location=None, login=None,
+                    password=None, inet_family=4, keypairs=None):
         """
         Create a new Gandi node
 
@@ -265,24 +263,22 @@ class GandiNodeDriver(BaseGandiDriver, NodeDriver):
 
         :rtype: :class:`Node`
         """
+        keypairs = keypairs or []
 
-        if not kwargs.get('login') and not kwargs.get('keypairs'):
+        if not login and not keypairs:
             raise GandiException(1020, "Login and password or ssh keypair "
                                  "must be defined for node creation")
 
-        location = kwargs.get('location')
         if location and isinstance(location, NodeLocation):
             dc_id = int(location.id)
         else:
             raise GandiException(
                 1021, 'location must be a subclass of NodeLocation')
 
-        size = kwargs.get('size')
         if not size and not isinstance(size, NodeSize):
             raise GandiException(
                 1022, 'size must be a subclass of NodeSize')
 
-        keypairs = kwargs.get('keypairs', [])
         keypair_ids = [
             k if isinstance(k, int) else k.extra['id']
             for k in keypairs
@@ -292,26 +288,26 @@ class GandiNodeDriver(BaseGandiDriver, NodeDriver):
         instance = INSTANCE_TYPES.get(size.id)
         cores = instance['cpu'] if instance else int(size.id)
 
-        src_disk_id = int(kwargs['image'].id)
+        src_disk_id = int(image.id)
 
         disk_spec = {
             'datacenter_id': dc_id,
-            'name': 'disk_%s' % kwargs['name']
+            'name': 'disk_%s' % name
         }
 
         vm_spec = {
             'datacenter_id': dc_id,
-            'hostname': kwargs['name'],
+            'hostname': name,
             'memory': int(size.ram),
             'cores': cores,
             'bandwidth': int(size.bandwidth),
-            'ip_version': kwargs.get('inet_family', 4),
+            'ip_version': inet_family,
         }
 
-        if kwargs.get('login') and kwargs.get('password'):
+        if login and password:
             vm_spec.update({
-                'login': kwargs['login'],
-                'password': kwargs['password'],  # TODO : use NodeAuthPassword
+                'login': login,
+                'password': password,  # TODO : use NodeAuthPassword
             })
         if keypair_ids:
             vm_spec['keys'] = keypair_ids
@@ -361,8 +357,7 @@ class GandiNodeDriver(BaseGandiDriver, NodeDriver):
                 filtering = {}
             images = self.connection.request('hosting.image.list', filtering)
             return [self._to_image(i) for i in images.object]
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             raise GandiException(1011, e)
 
     def _to_size(self, id, size):
@@ -436,7 +431,7 @@ class GandiNodeDriver(BaseGandiDriver, NodeDriver):
     def _to_loc(self, loc):
         return NodeLocation(
             id=loc['id'],
-            name=loc['name'],
+            name=loc['dc_code'],
             country=loc['country'],
             driver=self
         )

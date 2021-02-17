@@ -19,17 +19,41 @@ import socket
 import sys
 import ssl
 
-from mock import Mock, call, patch
+from mock import Mock, patch
+
+import requests_mock
+
+import libcloud.common.base
 
 from libcloud.test import unittest
-from libcloud.common.base import Connection
-from libcloud.common.base import LoggingConnection
-from libcloud.httplib_ssl import LibcloudBaseConnection
-from libcloud.httplib_ssl import LibcloudHTTPConnection
+from libcloud.common.base import Connection, CertificateConnection
+from libcloud.http import LibcloudBaseConnection
+from libcloud.http import LibcloudConnection
+from libcloud.http import SignedHTTPSAdapter
 from libcloud.utils.misc import retry
+from libcloud.utils.py3 import assertRaisesRegex
 
 
 class BaseConnectionClassTestCase(unittest.TestCase):
+
+    def setUp(self):
+        self.orig_proxy = os.environ.pop('http_proxy', None)
+
+    def tearDown(self):
+        if self.orig_proxy:
+            os.environ['http_proxy'] = self.orig_proxy
+        elif 'http_proxy' in os.environ:
+            del os.environ['http_proxy']
+
+        libcloud.common.base.ALLOW_PATH_DOUBLE_SLASHES = False
+
+    @classmethod
+    def tearDownClass(cls):
+        if 'http_proxy' in os.environ:
+            del os.environ['http_proxy']
+
+        libcloud.common.base.ALLOW_PATH_DOUBLE_SLASHES = False
+
     def test_parse_proxy_url(self):
         conn = LibcloudBaseConnection()
 
@@ -38,8 +62,16 @@ class BaseConnectionClassTestCase(unittest.TestCase):
         self.assertEqual(result[0], 'http')
         self.assertEqual(result[1], '127.0.0.1')
         self.assertEqual(result[2], 3128)
-        self.assertEqual(result[3], None)
-        self.assertEqual(result[4], None)
+        self.assertIsNone(result[3])
+        self.assertIsNone(result[4])
+
+        proxy_url = 'https://127.0.0.2:3129'
+        result = conn._parse_proxy_url(proxy_url=proxy_url)
+        self.assertEqual(result[0], 'https')
+        self.assertEqual(result[1], '127.0.0.2')
+        self.assertEqual(result[2], 3129)
+        self.assertIsNone(result[3])
+        self.assertIsNone(result[4])
 
         proxy_url = 'http://user1:pass1@127.0.0.1:3128'
         result = conn._parse_proxy_url(proxy_url=proxy_url)
@@ -49,56 +81,220 @@ class BaseConnectionClassTestCase(unittest.TestCase):
         self.assertEqual(result[3], 'user1')
         self.assertEqual(result[4], 'pass1')
 
-        proxy_url = 'https://127.0.0.1:3128'
-        expected_msg = 'Only http proxies are supported'
-        self.assertRaisesRegexp(ValueError, expected_msg,
-                                conn._parse_proxy_url,
-                                proxy_url=proxy_url)
+        proxy_url = 'https://user1:pass1@127.0.0.2:3129'
+        result = conn._parse_proxy_url(proxy_url=proxy_url)
+        self.assertEqual(result[0], 'https')
+        self.assertEqual(result[1], '127.0.0.2')
+        self.assertEqual(result[2], 3129)
+        self.assertEqual(result[3], 'user1')
+        self.assertEqual(result[4], 'pass1')
 
         proxy_url = 'http://127.0.0.1'
         expected_msg = 'proxy_url must be in the following format'
-        self.assertRaisesRegexp(ValueError, expected_msg,
-                                conn._parse_proxy_url,
-                                proxy_url=proxy_url)
+        assertRaisesRegex(self, ValueError, expected_msg,
+                          conn._parse_proxy_url,
+                          proxy_url=proxy_url)
 
         proxy_url = 'http://@127.0.0.1:3128'
         expected_msg = 'URL is in an invalid format'
-        self.assertRaisesRegexp(ValueError, expected_msg,
-                                conn._parse_proxy_url,
-                                proxy_url=proxy_url)
+        assertRaisesRegex(self, ValueError, expected_msg,
+                          conn._parse_proxy_url,
+                          proxy_url=proxy_url)
 
         proxy_url = 'http://user@127.0.0.1:3128'
         expected_msg = 'URL is in an invalid format'
-        self.assertRaisesRegexp(ValueError, expected_msg,
-                                conn._parse_proxy_url,
-                                proxy_url=proxy_url)
+        assertRaisesRegex(self, ValueError, expected_msg,
+                          conn._parse_proxy_url,
+                          proxy_url=proxy_url)
 
     def test_constructor(self):
-        conn = LibcloudHTTPConnection(host='localhost', port=80)
-        self.assertEqual(conn.proxy_scheme, None)
-        self.assertEqual(conn.proxy_host, None)
-        self.assertEqual(conn.proxy_port, None)
+        proxy_url = 'http://127.0.0.2:3128'
+        os.environ['http_proxy'] = proxy_url
+        conn = LibcloudConnection(host='localhost', port=80)
+        self.assertEqual(conn.proxy_scheme, 'http')
+        self.assertEqual(conn.proxy_host, '127.0.0.2')
+        self.assertEqual(conn.proxy_port, 3128)
+        self.assertEqual(conn.session.proxies, {
+            'http': 'http://127.0.0.2:3128',
+            'https': 'http://127.0.0.2:3128',
+        })
+
+        _ = os.environ.pop('http_proxy', None)
+        conn = LibcloudConnection(host='localhost', port=80)
+        self.assertIsNone(conn.proxy_scheme)
+        self.assertIsNone(conn.proxy_host)
+        self.assertIsNone(conn.proxy_port)
 
         proxy_url = 'http://127.0.0.3:3128'
         conn.set_http_proxy(proxy_url=proxy_url)
         self.assertEqual(conn.proxy_scheme, 'http')
         self.assertEqual(conn.proxy_host, '127.0.0.3')
         self.assertEqual(conn.proxy_port, 3128)
+        self.assertEqual(conn.session.proxies, {
+            'http': 'http://127.0.0.3:3128',
+            'https': 'http://127.0.0.3:3128',
+        })
 
         proxy_url = 'http://127.0.0.4:3128'
-        conn = LibcloudHTTPConnection(host='localhost', port=80,
-                                      proxy_url=proxy_url)
+        conn = LibcloudConnection(host='localhost', port=80,
+                                  proxy_url=proxy_url)
         self.assertEqual(conn.proxy_scheme, 'http')
         self.assertEqual(conn.proxy_host, '127.0.0.4')
         self.assertEqual(conn.proxy_port, 3128)
+        self.assertEqual(conn.session.proxies, {
+            'http': 'http://127.0.0.4:3128',
+            'https': 'http://127.0.0.4:3128',
+        })
 
         os.environ['http_proxy'] = proxy_url
         proxy_url = 'http://127.0.0.5:3128'
-        conn = LibcloudHTTPConnection(host='localhost', port=80,
-                                      proxy_url=proxy_url)
+        conn = LibcloudConnection(host='localhost', port=80,
+                                  proxy_url=proxy_url)
         self.assertEqual(conn.proxy_scheme, 'http')
         self.assertEqual(conn.proxy_host, '127.0.0.5')
         self.assertEqual(conn.proxy_port, 3128)
+        self.assertEqual(conn.session.proxies, {
+            'http': 'http://127.0.0.5:3128',
+            'https': 'http://127.0.0.5:3128',
+        })
+
+        os.environ['http_proxy'] = proxy_url
+        proxy_url = 'https://127.0.0.6:3129'
+        conn = LibcloudConnection(host='localhost', port=80,
+                                  proxy_url=proxy_url)
+        self.assertEqual(conn.proxy_scheme, 'https')
+        self.assertEqual(conn.proxy_host, '127.0.0.6')
+        self.assertEqual(conn.proxy_port, 3129)
+        self.assertEqual(conn.session.proxies, {
+            'http': 'https://127.0.0.6:3129',
+            'https': 'https://127.0.0.6:3129',
+        })
+
+    def test_connection_to_unusual_port(self):
+        conn = LibcloudConnection(host='localhost', port=8080)
+        self.assertIsNone(conn.proxy_scheme)
+        self.assertIsNone(conn.proxy_host)
+        self.assertIsNone(conn.proxy_port)
+        self.assertEqual(conn.host, 'http://localhost:8080')
+
+        conn = LibcloudConnection(host='localhost', port=80)
+        self.assertEqual(conn.host, 'http://localhost')
+
+    def test_connection_url_merging(self):
+        """
+        Test that the connection class will parse URLs correctly
+        """
+        conn = Connection(url='http://test.com/')
+        conn.connect()
+        self.assertEqual(conn.connection.host, 'http://test.com')
+        with requests_mock.mock() as m:
+            m.get('http://test.com/test', text='data')
+            response = conn.request('/test')
+        self.assertEqual(response.body, 'data')
+
+    def test_morph_action_hook(self):
+        conn = Connection(url="http://test.com")
+
+        conn.request_path = ''
+        self.assertEqual(conn.morph_action_hook('/test'), '/test')
+        self.assertEqual(conn.morph_action_hook('test'), '/test')
+
+        conn.request_path = '/v1'
+        self.assertEqual(conn.morph_action_hook('/test'), '/v1/test')
+        self.assertEqual(conn.morph_action_hook('test'), '/v1/test')
+
+        conn.request_path = '/v1'
+        self.assertEqual(conn.morph_action_hook('/test'), '/v1/test')
+        self.assertEqual(conn.morph_action_hook('test'), '/v1/test')
+
+        conn.request_path = 'v1'
+        self.assertEqual(conn.morph_action_hook('/test'), '/v1/test')
+        self.assertEqual(conn.morph_action_hook('test'), '/v1/test')
+
+        conn.request_path = 'v1/'
+        self.assertEqual(conn.morph_action_hook('/test'), '/v1/test')
+        self.assertEqual(conn.morph_action_hook('test'), '/v1/test')
+
+        conn.request_path = '/a'
+        self.assertEqual(conn.morph_action_hook('//b/c.txt'), '/a/b/c.txt')
+
+        conn.request_path = '/b'
+        self.assertEqual(conn.morph_action_hook('/foo//'), '/b/foo/')
+
+        libcloud.common.base.ALLOW_PATH_DOUBLE_SLASHES = True
+
+        conn.request_path = '/'
+        self.assertEqual(conn.morph_action_hook('/'), '//')
+
+        conn.request_path = ''
+        self.assertEqual(conn.morph_action_hook('/'), '/')
+
+        conn.request_path = '/a'
+        self.assertEqual(conn.morph_action_hook('//b/c.txt'), '/a//b/c.txt')
+
+        conn.request_path = '/b'
+        self.assertEqual(conn.morph_action_hook('/foo//'), '/b/foo//')
+
+    def test_connect_with_prefix(self):
+        """
+        Test that a connection with a base path (e.g. /v1/) will
+        add the base path to requests
+        """
+        conn = Connection(url='http://test.com/')
+        conn.connect()
+        conn.request_path = '/v1'
+        self.assertEqual(conn.connection.host, 'http://test.com')
+        with requests_mock.mock() as m:
+            m.get('http://test.com/v1/test', text='data')
+            response = conn.request('/test')
+        self.assertEqual(response.body, 'data')
+
+    def test_secure_connection_unusual_port(self):
+        """
+        Test that the connection class will default to secure (https) even
+        when the port is an unusual (non 443, 80) number
+        """
+        conn = Connection(secure=True, host='localhost', port=8081)
+        conn.connect()
+        self.assertEqual(conn.connection.host, 'https://localhost:8081')
+
+        conn2 = Connection(url='https://localhost:8081')
+        conn2.connect()
+        self.assertEqual(conn2.connection.host, 'https://localhost:8081')
+
+    def test_secure_by_default(self):
+        """
+        Test that the connection class will default to secure (https)
+        """
+        conn = Connection(host='localhost', port=8081)
+        conn.connect()
+        self.assertEqual(conn.connection.host, 'https://localhost:8081')
+
+    def test_implicit_port(self):
+        """
+        Test that the port is not included in the URL if the protocol implies
+        the port, e.g. http implies 80
+        """
+        conn = Connection(secure=True, host='localhost', port=443)
+        conn.connect()
+        self.assertEqual(conn.connection.host, 'https://localhost')
+
+        conn2 = Connection(secure=False, host='localhost', port=80)
+        conn2.connect()
+        self.assertEqual(conn2.connection.host, 'http://localhost')
+
+    def test_insecure_connection_unusual_port(self):
+        """
+        Test that the connection will allow unusual ports and insecure
+        schemes
+        """
+        conn = Connection(secure=False, host='localhost', port=8081)
+        conn.connect()
+        self.assertEqual(conn.connection.host, 'http://localhost:8081')
+
+        conn2 = Connection(url='http://localhost:8081')
+        conn2.connect()
+        self.assertEqual(conn2.connection.host, 'http://localhost:8081')
 
 
 class ConnectionClassTestCase(unittest.TestCase):
@@ -122,63 +318,9 @@ class ConnectionClassTestCase(unittest.TestCase):
         Connection.allow_insecure = False
 
         expected_msg = (r'Non https connections are not allowed \(use '
-                        'secure=True\)')
-        self.assertRaisesRegexp(ValueError, expected_msg, Connection,
-                                secure=False)
-
-    def test_content_length(self):
-        con = Connection()
-        con.connection = Mock()
-
-        # GET method
-        # No data, no content length should be present
-        con.request('/test', method='GET', data=None)
-        call_kwargs = con.connection.request.call_args[1]
-        self.assertTrue('Content-Length' not in call_kwargs['headers'])
-
-        # '' as data, no content length should be present
-        con.request('/test', method='GET', data='')
-        call_kwargs = con.connection.request.call_args[1]
-        self.assertTrue('Content-Length' not in call_kwargs['headers'])
-
-        # 'a' as data, content length should be present (data in GET is not
-        # correct, but anyways)
-        con.request('/test', method='GET', data='a')
-        call_kwargs = con.connection.request.call_args[1]
-        self.assertEqual(call_kwargs['headers']['Content-Length'], '1')
-
-        # POST, PUT method
-        # No data, content length should be present
-        for method in ['POST', 'PUT', 'post', 'put']:
-            con.request('/test', method=method, data=None)
-            call_kwargs = con.connection.request.call_args[1]
-            self.assertEqual(call_kwargs['headers']['Content-Length'], '0')
-
-        # '' as data, content length should be present
-        for method in ['POST', 'PUT', 'post', 'put']:
-            con.request('/test', method=method, data='')
-            call_kwargs = con.connection.request.call_args[1]
-            self.assertEqual(call_kwargs['headers']['Content-Length'], '0')
-
-        # No data, raw request, do not touch Content-Length if present
-        for method in ['POST', 'PUT', 'post', 'put']:
-            con.request('/test', method=method, data=None,
-                        headers={'Content-Length': '42'}, raw=True)
-            putheader_call_list = con.connection.putheader.call_args_list
-            self.assertIn(call('Content-Length', '42'), putheader_call_list)
-
-        # '' as data, raw request, do not touch Content-Length if present
-        for method in ['POST', 'PUT', 'post', 'put']:
-            con.request('/test', method=method, data=None,
-                        headers={'Content-Length': '42'}, raw=True)
-            putheader_call_list = con.connection.putheader.call_args_list
-            self.assertIn(call('Content-Length', '42'), putheader_call_list)
-
-        # 'a' as data, content length should be present
-        for method in ['POST', 'PUT', 'post', 'put']:
-            con.request('/test', method=method, data='a')
-            call_kwargs = con.connection.request.call_args[1]
-            self.assertEqual(call_kwargs['headers']['Content-Length'], '1')
+                        r'secure=True\)')
+        assertRaisesRegex(self, ValueError, expected_msg, Connection,
+                          secure=False)
 
     def test_cache_busting(self):
         params1 = {'foo1': 'bar1', 'foo2': 'bar2'}
@@ -259,26 +401,6 @@ class ConnectionClassTestCase(unittest.TestCase):
 
         self.assertEqual(con.context, {})
 
-    def test_log_curl(self):
-        url = '/test/path'
-        body = None
-        headers = {}
-
-        con = LoggingConnection()
-        con.protocol = 'http'
-        con.host = 'example.com'
-        con.port = 80
-
-        for method in ['GET', 'POST', 'PUT', 'DELETE']:
-            cmd = con._log_curl(method=method, url=url, body=body,
-                                headers=headers)
-            self.assertEqual(cmd, 'curl -i -X %s --compress http://example.com:80/test/path' %
-                             (method))
-
-        # Should use --head for head requests
-        cmd = con._log_curl(method='HEAD', url=url, body=body, headers=headers)
-        self.assertEqual(cmd, 'curl -i --head --compress http://example.com:80/test/path')
-
     def _raise_socket_error(self):
         raise socket.gaierror('')
 
@@ -291,7 +413,7 @@ class ConnectionClassTestCase(unittest.TestCase):
             mock_connect.__name__ = 'mock_connect'
             with self.assertRaises(socket.gaierror):
                 mock_connect.side_effect = socket.gaierror('')
-                retry_request = retry(timeout=1, retry_delay=.1,
+                retry_request = retry(timeout=0.2, retry_delay=0.1,
                                       backoff=1)
                 retry_request(con.request)(action='/')
 
@@ -307,7 +429,7 @@ class ConnectionClassTestCase(unittest.TestCase):
             mock_connect.__name__ = 'mock_connect'
             with self.assertRaises(socket.gaierror):
                 mock_connect.side_effect = socket.gaierror('')
-                retry_request = retry(timeout=2, retry_delay=.1,
+                retry_request = retry(timeout=0.2, retry_delay=0.1,
                                       backoff=1)
                 retry_request(con.request)(action='/')
 
@@ -323,12 +445,25 @@ class ConnectionClassTestCase(unittest.TestCase):
             mock_connect.__name__ = 'mock_connect'
             with self.assertRaises(socket.gaierror):
                 mock_connect.side_effect = socket.gaierror('')
-                retry_request = retry(timeout=2, retry_delay=.1,
+                retry_request = retry(timeout=0.2, retry_delay=0.1,
                                       backoff=1)
                 retry_request(con.request)(action='/')
 
             self.assertGreater(mock_connect.call_count, 1,
                                'Retry logic failed')
+
+
+class CertificateConnectionClassTestCase(unittest.TestCase):
+    def setUp(self):
+        self.connection = CertificateConnection(cert_file='test.pem',
+                                                url='https://test.com/test')
+        self.connection.connect()
+
+    def test_adapter_internals(self):
+        adapter = self.connection.connection.session.adapters['https://']
+        self.assertTrue(isinstance(adapter, SignedHTTPSAdapter))
+        self.assertEqual(adapter.cert_file, 'test.pem')
+
 
 if __name__ == '__main__':
     sys.exit(unittest.main())

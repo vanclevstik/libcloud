@@ -13,23 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import base64
-
 from libcloud.common.base import ConnectionUserAndKey, JsonResponse
 from libcloud.compute.types import InvalidCredsError
 
 from libcloud.utils.py3 import b
 from libcloud.utils.py3 import httplib
+from libcloud.utils.py3 import base64_encode_string
 
 try:
     import simplejson as json
 except ImportError:
-    import json
+    import json  # type: ignore
 
 
 class BrightboxResponse(JsonResponse):
     def success(self):
-        return self.status >= httplib.OK and self.status < httplib.BAD_REQUEST
+        return httplib.OK <= self.status < httplib.BAD_REQUEST
 
     def parse_body(self):
         if self.headers['content-type'].split(';')[0] == 'application/json':
@@ -62,7 +61,7 @@ class BrightboxConnection(ConnectionUserAndKey):
     def _fetch_oauth_token(self):
         body = json.dumps({'client_id': self.user_id, 'grant_type': 'none'})
 
-        authorization = 'Basic ' + str(base64.encodestring(b('%s:%s' %
+        authorization = 'Basic ' + str(base64_encode_string(b('%s:%s' %
                                        (self.user_id, self.key)))).rstrip()
 
         self.connect()
@@ -75,15 +74,15 @@ class BrightboxConnection(ConnectionUserAndKey):
             'Content-Length': str(len(body))
         }
 
+        # pylint: disable=assignment-from-no-return
         response = self.connection.request(method='POST', url='/token',
                                            body=body, headers=headers)
-
-        response = self.connection.getresponse()
 
         if response.status == httplib.OK:
             return json.loads(response.read())['access_token']
         else:
-            responseCls = BrightboxResponse(response=response, connection=self)
+            responseCls = BrightboxResponse(
+                response=response.getresponse(), connection=self)
             message = responseCls.parse_error()
             raise InvalidCredsError(message)
 

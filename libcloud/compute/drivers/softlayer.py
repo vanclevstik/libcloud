@@ -18,7 +18,9 @@ Softlayer driver
 
 import time
 try:
-    from Crypto.PublicKey import RSA
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
     crypto = True
 except ImportError:
     crypto = False
@@ -220,17 +222,29 @@ class SoftLayerNodeDriver(NodeDriver):
         )
         return True
 
-    def ex_stop_node(self, node):
+    def start_node(self, node):
+        self.connection.request(
+            'SoftLayer_Virtual_Guest', 'powerOn', id=node.id
+        )
+        return True
+
+    def stop_node(self, node):
         self.connection.request(
             'SoftLayer_Virtual_Guest', 'powerOff', id=node.id
         )
         return True
 
     def ex_start_node(self, node):
-        self.connection.request(
-            'SoftLayer_Virtual_Guest', 'powerOn', id=node.id
-        )
-        return True
+        # NOTE: This method is here for backward compatibility reasons after
+        # this method was promoted to be part of the standard compute API in
+        # Libcloud v2.7.0
+        return self.start_node(node=node)
+
+    def ex_stop_node(self, node):
+        # NOTE: This method is here for backward compatibility reasons after
+        # this method was promoted to be part of the standard compute API in
+        # Libcloud v2.7.0
+        return self.stop_node(node=node)
 
     def _get_order_information(self, node_id, timeout=1200, check_interval=5):
         mask = {
@@ -255,7 +269,11 @@ class SoftLayerNodeDriver(NodeDriver):
 
         raise SoftLayerException('Timeout on getting node details')
 
-    def create_node(self, **kwargs):
+    def create_node(self, name, size=None, image=None, location=None,
+                    ex_domain=None, ex_cpus=None,
+                    ex_disk=None, ex_ram=None, ex_bandwidth=None,
+                    ex_local_disk=None, ex_datacenter=None, ex_os=None,
+                    ex_keyname=None, ex_hourly=True):
         """Create a new SoftLayer node
 
         @inherits: :class:`NodeDriver.create_node`
@@ -279,46 +297,45 @@ class SoftLayerNodeDriver(NodeDriver):
         :keyword    ex_keyname: The name of the key pair
         :type       ex_keyname: ``str``
         """
-        name = kwargs['name']
         os = 'DEBIAN_LATEST'
-        if 'ex_os' in kwargs:
-            os = kwargs['ex_os']
-        elif 'image' in kwargs:
-            os = kwargs['image'].id
+        if ex_os:
+            os = ex_os
+        elif image:
+            os = image.id
 
-        size = kwargs.get('size', NodeSize(id=123, name='Custom', ram=None,
-                                           disk=None, bandwidth=None,
-                                           price=None,
-                                           driver=self.connection.driver))
+        size = size or NodeSize(id=123, name='Custom', ram=None,
+                                disk=None, bandwidth=None,
+                                price=None,
+                                driver=self.connection.driver)
         ex_size_data = SL_TEMPLATES.get(int(size.id)) or {}
         # plan keys are ints
-        cpu_count = kwargs.get('ex_cpus') or ex_size_data.get('cpus') or \
+        cpu_count = ex_cpus or ex_size_data.get('cpus') or \
             DEFAULT_CPU_SIZE
-        ram = kwargs.get('ex_ram') or ex_size_data.get('ram') or \
+        ram = ex_ram or ex_size_data.get('ram') or \
             DEFAULT_RAM_SIZE
-        bandwidth = kwargs.get('ex_bandwidth') or size.bandwidth or 10
-        hourly = 'true' if kwargs.get('ex_hourly', True) else 'false'
+        bandwidth = ex_bandwidth or size.bandwidth or 10
+        hourly = ex_hourly
 
         local_disk = 'true'
         if ex_size_data.get('local_disk') is False:
             local_disk = 'false'
 
-        if kwargs.get('ex_local_disk') is False:
+        if ex_local_disk is False:
             local_disk = 'false'
 
         disk_size = DEFAULT_DISK_SIZE
         if size.disk:
             disk_size = size.disk
-        if kwargs.get('ex_disk'):
-            disk_size = kwargs.get('ex_disk')
+        if ex_disk:
+            disk_size = ex_disk
 
         datacenter = ''
-        if 'ex_datacenter' in kwargs:
-            datacenter = kwargs['ex_datacenter']
-        elif 'location' in kwargs:
-            datacenter = kwargs['location'].id
+        if ex_datacenter:
+            datacenter = ex_datacenter
+        elif location:
+            datacenter = location.id
 
-        domain = kwargs.get('ex_domain')
+        domain = ex_domain
         if domain is None:
             if name.find('.') != -1:
                 domain = name[name.find('.') + 1:]
@@ -350,10 +367,10 @@ class SoftLayerNodeDriver(NodeDriver):
         if datacenter:
             newCCI['datacenter'] = {'name': datacenter}
 
-        if 'ex_keyname' in kwargs:
+        if ex_keyname:
             newCCI['sshKeys'] = [
                 {
-                    'id': self._key_name_to_id(kwargs['ex_keyname'])
+                    'id': self._key_name_to_id(ex_keyname)
                 }
             ]
 
@@ -386,17 +403,29 @@ class SoftLayerNodeDriver(NodeDriver):
     def create_key_pair(self, name, ex_size=4096):
         if crypto is False:
             raise NotImplementedError('create_key_pair needs'
-                                      'the pycrypto library')
-        key = RSA.generate(ex_size)
+                                      'the cryptography library')
+        key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=4096,
+            backend=default_backend()
+        )
+        public_key = key.public_key().public_bytes(
+            encoding=serialization.Encoding.OpenSSH,
+            format=serialization.PublicFormat.OpenSSH
+        )
         new_key = {
-            'key': key.publickey().exportKey('OpenSSH'),
+            'key': public_key,
             'label': name,
             'notes': '',
         }
         result = self.connection.request(
             'SoftLayer_Security_Ssh_Key', 'createObject', new_key
         ).object
-        result['private'] = key.exportKey('PEM')
+        result['private'] = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        )
         return self._to_key_pair(result)
 
     def import_key_pair_from_string(self, name, key_material):
@@ -431,6 +460,25 @@ class SoftLayerNodeDriver(NodeDriver):
             'SoftLayer_Virtual_Guest', 'getCreateObjectOptions'
         ).object
         return [self._to_image(i) for i in result['operatingSystems']]
+
+    def get_image(self, image_id):
+        """
+        Gets an image based on an image_id.
+
+        :param image_id: Image identifier
+        :type image_id: ``str``
+
+        :return: A NodeImage object
+        :rtype: :class:`NodeImage`
+
+        """
+        images = self.list_images()
+        images = [image for image in images if image.id == image_id]
+        if len(images) < 1:
+            raise SoftLayerException('could not find the image with id %s'
+                                     % image_id)
+        image = images[0]
+        return image
 
     def _to_size(self, id, size):
         return NodeSize(

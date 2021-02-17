@@ -18,9 +18,10 @@
 Loads Google Cloud Platform prices and updates the `pricing.json` data file.
 """
 
+# pylint: skip-file
+
 import os
 import json
-import simplejson
 import sys
 import time
 import urllib2
@@ -53,7 +54,9 @@ def main(argv):
         'eu': 'europe',  # alias for 'europe'
         'europe': 'europe',
         'apac': 'asia',  # alias for 'asia'
-        'asia': 'asia'
+        'asia': 'asia',
+        'au': 'australia',  # alias for 'australia'
+        'australia': 'australia'
     }
 
     # Initialize Google Cloud Platform regions.
@@ -78,8 +81,8 @@ def main(argv):
 
     # Write updated price list.
     with open(PRICING_FILE_PATH, 'w') as libcloud_out:
-        json_str = simplejson.dumps(libcloud_data, indent=4 * ' ',
-                                    item_sort_key=utils.sortKeysNumerically)
+        json_str = json.dumps(libcloud_data, indent=4 * ' ',
+                              item_sort_key=utils.sortKeysNumerically)
         libcloud_out.write(json_str)
 
 

@@ -22,9 +22,11 @@ from libcloud.common.types import InvalidCredsError
 
 class GridspotAPIException(Exception):
     def __str__(self):
+        # pylint: disable=unsubscriptable-object
         return self.args[0]
 
     def __repr__(self):
+        # pylint: disable=unsubscriptable-object
         return "<GridspotAPIException '%s'>" % (self.args[0])
 
 
@@ -90,7 +92,7 @@ class GridspotNodeDriver(NodeDriver):
         if data[field]:
             try:
                 params[field] = int(data[field])
-            except:
+            except Exception:
                 pass
 
     def _to_node(self, data):

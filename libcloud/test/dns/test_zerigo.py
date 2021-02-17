@@ -29,8 +29,7 @@ from libcloud.test.secrets import DNS_PARAMS_ZERIGO
 
 class ZerigoTests(unittest.TestCase):
     def setUp(self):
-        ZerigoDNSDriver.connectionCls.conn_classes = (
-            None, ZerigoMockHttp)
+        ZerigoDNSDriver.connectionCls.conn_class = ZerigoMockHttp
         ZerigoMockHttp.type = None
         self.driver = ZerigoDNSDriver(*DNS_PARAMS_ZERIGO)
 
@@ -70,8 +69,8 @@ class ZerigoTests(unittest.TestCase):
         self.assertEqual(records[0].type, RecordType.A)
         self.assertEqual(records[0].data, '172.16.16.1')
         self.assertEqual(records[0].extra['fqdn'], 'www.example.com')
-        self.assertEqual(records[0].extra['notes'], None)
-        self.assertEqual(records[0].extra['priority'], None)
+        self.assertIsNone(records[0].extra['notes'])
+        self.assertIsNone(records[0].extra['priority'])
 
         self.assertEqual(records[1].name, 'test')
         self.assertEqual(records[1].extra['ttl'], 3600)
@@ -81,8 +80,8 @@ class ZerigoTests(unittest.TestCase):
         record1 = list(self.driver.list_records(zone=zone))[-1]
         record2 = list(self.driver.list_records(zone=zone))[-2]
 
-        self.assertEqual(record1.name, None)
-        self.assertEqual(record2.name, None)
+        self.assertIsNone(record1.name)
+        self.assertIsNone(record2.name)
 
     def test_list_records_no_results(self):
         zone = self.driver.list_zones()[0]
@@ -96,8 +95,7 @@ class ZerigoTests(unittest.TestCase):
         ZerigoMockHttp.type = 'ZONE_DOES_NOT_EXIST'
         try:
             list(self.driver.list_records(zone=zone))
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, zone.id)
         else:
             self.fail('Exception was not thrown')
@@ -116,8 +114,7 @@ class ZerigoTests(unittest.TestCase):
 
         try:
             self.driver.get_zone(zone_id='4444')
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, '4444')
         else:
             self.fail('Exception was not thrown')
@@ -164,8 +161,7 @@ class ZerigoTests(unittest.TestCase):
         try:
             self.driver.create_zone(domain='foo.bar.com', type='master',
                                     ttl=10, extra=None)
-        except ZerigoError:
-            e = sys.exc_info()[1]
+        except ZerigoError as e:
             self.assertEqual(len(e.errors), 2)
         else:
             self.fail('Exception was not thrown')
@@ -235,8 +231,7 @@ class ZerigoTests(unittest.TestCase):
 
         try:
             self.driver.delete_zone(zone=zone)
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, zone.id)
         else:
             self.fail('Exception was not thrown')
@@ -255,8 +250,7 @@ class ZerigoTests(unittest.TestCase):
 
         try:
             self.driver.delete_record(record=record)
-        except RecordDoesNotExistError:
-            e = sys.exc_info()[1]
+        except RecordDoesNotExistError as e:
             self.assertEqual(e.record_id, record.id)
         else:
             self.fail('Exception was not thrown')
@@ -271,7 +265,7 @@ class ZerigoMockHttp(MockHttp):
 
     def _api_1_1_zones_xml(self, method, url, body, headers):
         body = self.fixtures.load('list_zones.xml')
-        return (httplib.OK, body, {'x-query-count': 1},
+        return (httplib.OK, body, {'x-query-count': '1'},
                 httplib.responses[httplib.OK])
 
     def _api_1_1_zones_xml_NO_RESULTS(self, method, url, body, headers):
@@ -280,13 +274,13 @@ class ZerigoMockHttp(MockHttp):
 
     def _api_1_1_zones_12345678_hosts_xml(self, method, url, body, headers):
         body = self.fixtures.load('list_records.xml')
-        return (httplib.OK, body, {'x-query-count': 1},
+        return (httplib.OK, body, {'x-query-count': '1'},
                 httplib.responses[httplib.OK])
 
     def _api_1_1_zones_12345678_hosts_xml_NO_RESULTS(self, method, url, body,
                                                      headers):
         body = self.fixtures.load('list_records_no_results.xml')
-        return (httplib.OK, body, {'x-query-count': 0},
+        return (httplib.OK, body, {'x-query-count': '0'},
                 httplib.responses[httplib.OK])
 
     def _api_1_1_zones_12345678_hosts_xml_ZONE_DOES_NOT_EXIST(self, method,

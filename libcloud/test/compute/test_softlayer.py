@@ -15,13 +15,7 @@
 
 import unittest
 import sys
-
-try:
-    import Crypto
-    Crypto
-    crypto = True
-except ImportError:
-    crypto = False
+import pytest
 
 from libcloud.common.types import InvalidCredsError
 
@@ -34,6 +28,7 @@ from libcloud.compute.drivers.softlayer import SoftLayerException, \
     NODE_STATE_MAP
 from libcloud.compute.types import NodeState, KeyPairDoesNotExistError
 
+from libcloud.test import unittest
 from libcloud.test import MockHttp               # pylint: disable-msg=E0611
 from libcloud.test.file_fixtures import ComputeFileFixtures
 from libcloud.test.secrets import SOFTLAYER_PARAMS
@@ -45,8 +40,7 @@ null_fingerprint = '00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:' + \
 class SoftLayerTests(unittest.TestCase):
 
     def setUp(self):
-        SoftLayer.connectionCls.conn_classes = (
-            SoftLayerMockHttp, SoftLayerMockHttp)
+        SoftLayer.connectionCls.conn_class = SoftLayerMockHttp
         SoftLayerMockHttp.type = None
         self.driver = SoftLayer(*SOFTLAYER_PARAMS)
 
@@ -74,6 +68,16 @@ class SoftLayerTests(unittest.TestCase):
         image = images[0]
         self.assertEqual(image.id, 'CENTOS_6_64')
 
+    def test_get_image(self):
+        image = self.driver.get_image('CENTOS_6_64')
+        self.assertEqual(image.id, 'CENTOS_6_64')
+
+    def test_fail_get_image(self):
+        self.assertRaises(
+            SoftLayerException,
+            self.driver.get_image,
+            'NOT_IMAGE')
+
     def test_list_sizes(self):
         sizes = self.driver.list_sizes()
         self.assertEqual(len(sizes), 13)
@@ -87,6 +91,28 @@ class SoftLayerTests(unittest.TestCase):
                                        image=self.driver.list_images()[0])
         self.assertEqual(node.name, 'libcloud-testing.example.com')
         self.assertEqual(node.state, NODE_STATE_MAP['RUNNING'])
+
+    def test_create_node_ex_hourly_True(self):
+        SoftLayerMockHttp.type = 'HOURLY_BILLING_TRUE'
+
+        node = self.driver.create_node(name="libcloud-testing",
+                                       location=self.driver.list_locations()[0],
+                                       size=self.driver.list_sizes()[0],
+                                       image=self.driver.list_images()[0],
+                                       ex_hourly=True)
+        self.assertEqual(node.name, 'libcloud-testing.example.com')
+        self.assertEqual(node.state, NODE_STATE_MAP['RUNNING'])
+
+        SoftLayerMockHttp.type = 'HOURLY_BILLING_FALSE'
+
+        node = self.driver.create_node(name="libcloud-testing",
+                                       location=self.driver.list_locations()[0],
+                                       size=self.driver.list_sizes()[0],
+                                       image=self.driver.list_images()[0],
+                                       ex_hourly=False)
+        self.assertEqual(node.name, 'libcloud-testing.example.com')
+        self.assertEqual(node.state, NODE_STATE_MAP['RUNNING'])
+
 
     def test_create_fail(self):
         SoftLayerMockHttp.type = "SOFTLAYEREXCEPTION"
@@ -131,7 +157,7 @@ class SoftLayerTests(unittest.TestCase):
                                 ex_cpus=2,
                                 ex_ram=2048,
                                 ex_disk=100,
-                                ex_key='test1',
+                                ex_keyname='test1',
                                 ex_bandwidth=10,
                                 ex_local_disk=False,
                                 ex_datacenter='Dal05',
@@ -159,25 +185,22 @@ class SoftLayerTests(unittest.TestCase):
         self.assertRaises(KeyPairDoesNotExistError, self.driver.get_key_pair,
                           name='test-key-pair')
 
+    @pytest.mark.skip(reason="no way of currently testing this")
     def test_create_key_pair(self):
-        if crypto:
-            key_pair = self.driver.create_key_pair(name='my-key-pair')
-            fingerprint = ('1f:51:ae:28:bf:89:e9:d8:1f:25:5d'
-                           ':37:2d:7d:b8:ca:9f:f5:f1:6f')
+        key_pair = self.driver.create_key_pair(name='my-key-pair')
+        fingerprint = ('1f:51:ae:28:bf:89:e9:d8:1f:25:5d'
+                       ':37:2d:7d:b8:ca:9f:f5:f1:6f')
 
-            self.assertEqual(key_pair.name, 'my-key-pair')
-            self.assertEqual(key_pair.fingerprint, fingerprint)
-            self.assertTrue(key_pair.private_key is not None)
-        else:
-            self.assertRaises(NotImplementedError, self.driver.create_key_pair,
-                              name='my-key-pair')
+        self.assertEqual(key_pair.name, 'my-key-pair')
+        self.assertEqual(key_pair.fingerprint, fingerprint)
+        self.assertTrue(key_pair.private_key is not None)
 
     def test_delete_key_pair(self):
         success = self.driver.delete_key_pair('test1')
         self.assertTrue(success)
 
 
-class SoftLayerMockHttp(MockHttp):
+class SoftLayerMockHttp(MockHttp, unittest.TestCase):
     fixtures = ComputeFileFixtures('softlayer')
 
     def _get_method_name(self, type, use_param, qs, path):
@@ -212,7 +235,32 @@ class SoftLayerMockHttp(MockHttp):
             None: 'v3__SoftLayer_Virtual_Guest_createObject.xml',
             'INVALIDCREDSERROR': 'SoftLayer_Account.xml',
             'SOFTLAYEREXCEPTION': 'fail.xml',
+            'HOURLY_BILLING_TRUE': 'v3__SoftLayer_Virtual_Guest_createObject.xml',
+            'HOURLY_BILLING_FALSE': 'v3__SoftLayer_Virtual_Guest_createObject.xml',
         }[self.type]
+
+        if self.type == 'HOURLY_BILLING_TRUE':
+            # Verify parameter is sent as a boolean and not as a string
+            expected_value = """
+<member>
+<name>hourlyBillingFlag</name>
+<value><boolean>1</boolean></value>
+</member>
+""".strip()
+
+            self.assertTrue(expected_value in body, 'Request body is missing hourlyBillingFlag attribute')
+        elif self.type == 'HOURLY_BILLING_FALSE':
+            # Verify parameter is sent as a boolean and not as a string
+            expected_value = """
+<member>
+<name>hourlyBillingFlag</name>
+<value><boolean>0</boolean></value>
+</member>
+""".strip()
+
+            self.assertTrue(expected_value in body, 'Request body is missing hourlyBillingFlag attribute')
+
+
         body = self.fixtures.load(fixture)
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 

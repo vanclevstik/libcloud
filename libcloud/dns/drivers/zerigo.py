@@ -24,11 +24,7 @@ import base64
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import b
 
-try:
-    from lxml import etree as ET
-except ImportError:
-    from xml.etree import ElementTree as ET
-
+from libcloud.utils.py3 import ET
 from libcloud.utils.misc import merge_valid_keys, get_new_obj
 from libcloud.utils.xml import findtext, findall
 from libcloud.common.base import XmlResponse, ConnectionUserAndKey
@@ -85,7 +81,7 @@ class ZerigoDNSResponse(XmlResponse):
         elif status != 503:
             try:
                 body = ET.XML(self.body)
-            except:
+            except Exception:
                 raise MalformedResponseError('Failed to parse XML',
                                              body=self.body)
 

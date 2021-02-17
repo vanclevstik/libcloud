@@ -15,14 +15,9 @@
 """
 Abiquo Test Suite
 """
-import unittest
 import sys
 
-try:
-    from lxml import etree as ET
-except ImportError:
-    from xml.etree import ElementTree as ET
-
+from libcloud.utils.py3 import ET
 from libcloud.utils.py3 import httplib
 
 from libcloud.compute.drivers.abiquo import AbiquoNodeDriver
@@ -30,23 +25,23 @@ from libcloud.common.abiquo import ForbiddenError, get_href
 from libcloud.common.types import InvalidCredsError, LibcloudError
 from libcloud.compute.base import NodeLocation, NodeImage
 from libcloud.test.compute import TestCaseMixin
-from libcloud.test import MockHttpTestCase
+from libcloud.test import MockHttp, unittest
 from libcloud.test.file_fixtures import ComputeFileFixtures
 
 
-class AbiquoNodeDriverTest(unittest.TestCase, TestCaseMixin):
-
+class AbiquoNodeDriverTest(TestCaseMixin, unittest.TestCase):
     """
     Abiquo Node Driver test suite
     """
 
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         """
         Set up the driver with the main user
         """
-        AbiquoNodeDriver.connectionCls.conn_classes = (AbiquoMockHttp, None)
-        self.driver = AbiquoNodeDriver('son', 'goku',
-                                       'http://dummy.host.com/api')
+        AbiquoNodeDriver.connectionCls.conn_class = AbiquoMockHttp
+        cls.driver = AbiquoNodeDriver('son', 'goku',
+                                      'http://dummy.host.com/api')
 
     def test_unauthorized_controlled(self):
         """
@@ -65,7 +60,7 @@ class AbiquoNodeDriverTest(unittest.TestCase, TestCaseMixin):
         Test, through the 'list_images' method, that a '403 Forbidden'
         raises an 'ForbidenError' instead of the 'MalformedUrlException'
         """
-        AbiquoNodeDriver.connectionCls.conn_classes = (AbiquoMockHttp, None)
+        AbiquoNodeDriver.connectionCls.conn_class = AbiquoMockHttp
         conn = AbiquoNodeDriver('son', 'gohan', 'http://dummy.host.com/api')
         self.assertRaises(ForbiddenError, conn.list_images)
 
@@ -95,7 +90,7 @@ class AbiquoNodeDriverTest(unittest.TestCase, TestCaseMixin):
         Test the 'create_node' function without 'image' parameter raises
         an Exception
         """
-        self.assertRaises(LibcloudError, self.driver.create_node)
+        self.assertRaises(TypeError, self.driver.create_node)
 
     def test_list_locations_response(self):
         if not self.should_list_locations:
@@ -140,7 +135,7 @@ class AbiquoNodeDriverTest(unittest.TestCase, TestCaseMixin):
         Test 'create_node' into a concrete group.
         """
         image = self.driver.list_images()[0]
-        self.driver.create_node(image=image, group_name='new_group_name')
+        self.driver.create_node(image=image, ex_group_name='new_group_name')
 
     def test_create_group_location_does_not_exist(self):
         """
@@ -299,7 +294,7 @@ class AbiquoNodeDriverTest(unittest.TestCase, TestCaseMixin):
         self.assertEqual(href, '/admin/enterprises/1234')
 
 
-class AbiquoMockHttp(MockHttpTestCase):
+class AbiquoMockHttp(MockHttp):
 
     """
     Mock the functionallity of the remote Abiquo API.

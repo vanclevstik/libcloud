@@ -80,7 +80,7 @@ class CloudStackConnection(ConnectionUserAndKey, PollingConnection):
         pairs = []
         for pair in signature:
             key = urlquote(str(pair[0]), safe='[]')
-            value = urlquote(str(pair[1]), safe='[]')
+            value = urlquote(str(pair[1]), safe='[]*')
             item = '%s=%s' % (key, value)
             pairs .append(item)
 
@@ -152,6 +152,7 @@ class CloudStackConnection(ConnectionUserAndKey, PollingConnection):
             params = {}
 
         params['command'] = command
+        # pylint: disable=maybe-no-member
         result = self.request(action=self.driver.path, params=params,
                               data=data, headers=headers, method=method)
 
@@ -162,12 +163,15 @@ class CloudStackConnection(ConnectionUserAndKey, PollingConnection):
         if (command == 'revokesecuritygroupingress' and
                 'revokesecuritygroupingressresponse' not in result.object):
             command = command
+        elif (command == 'restorevirtualmachine' and
+                'restorevmresponse' in result.object):
+            command = "restorevmresponse"
         else:
             command = command + 'response'
 
         if command not in result.object:
             raise MalformedResponseError(
-                "Unknown response format",
+                "Unknown response format {}".format(command),
                 body=result.body,
                 driver=self.driver)
         result = result.object[command]

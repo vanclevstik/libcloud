@@ -21,7 +21,7 @@ from libcloud.dns.base import Record, Zone
 from libcloud.dns.types import RecordType
 from libcloud.dns.types import ZoneDoesNotExistError, ZoneAlreadyExistsError
 from libcloud.dns.types import RecordDoesNotExistError
-from libcloud.test import LibcloudTestCase, MockHttpTestCase
+from libcloud.test import LibcloudTestCase, MockHttp
 from libcloud.test.file_fixtures import DNSFileFixtures
 from libcloud.test.secrets import DNS_PARAMS_DURABLEDNS
 from libcloud.utils.py3 import httplib
@@ -34,8 +34,7 @@ from libcloud.dns.drivers.durabledns import RECORD_EXTRA_PARAMS_DEFAULT_VALUES
 class DurableDNSTests(LibcloudTestCase):
 
     def setUp(self):
-        DurableDNSDriver.connectionCls.conn_classes = \
-            (None, DurableDNSMockHttp)
+        DurableDNSDriver.connectionCls.conn_class = DurableDNSMockHttp
         DurableDNSMockHttp.type = None
         self.driver = DurableDNSDriver(*DNS_PARAMS_DURABLEDNS)
 
@@ -115,8 +114,7 @@ class DurableDNSTests(LibcloudTestCase):
         DurableDNSMockHttp.type = 'ZONE_DOES_NOT_EXIST'
         try:
             self.driver.list_records(zone=zone)
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, zone.id)
         else:
             self.fail('Exception was not thrown')
@@ -142,8 +140,7 @@ class DurableDNSTests(LibcloudTestCase):
         DurableDNSMockHttp.type = 'ZONE_DOES_NOT_EXIST'
         try:
             self.driver.get_zone(zone_id='nonexistentzone.com.')
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, 'nonexistentzone.com.')
         else:
             self.fail('Exception was not thrown')
@@ -432,7 +429,7 @@ class DurableDNSTests(LibcloudTestCase):
             self.fail('Exception was not thrown')
 
 
-class DurableDNSMockHttp(MockHttpTestCase):
+class DurableDNSMockHttp(MockHttp):
     fixtures = DNSFileFixtures('durabledns')
 
     def _services_dns_listZones_php(self, method, url, body, headers):

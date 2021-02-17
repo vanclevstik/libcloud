@@ -18,7 +18,6 @@ Gandi driver base classes
 
 import time
 import hashlib
-import sys
 
 from libcloud.utils.py3 import b
 
@@ -36,9 +35,11 @@ class GandiException(Exception):
     Exception class for Gandi driver
     """
     def __str__(self):
+        # pylint: disable=unsubscriptable-object
         return '(%u) %s' % (self.args[0], self.args[1])
 
     def __repr__(self):
+        # pylint: disable=unsubscriptable-object
         return '<GandiException code %u "%s">' % (self.args[0], self.args[1])
 
 
@@ -99,8 +100,7 @@ class BaseGandiDriver(object):
                     return False
             except (KeyError, IndexError):
                 pass
-            except Exception:
-                e = sys.exc_info()[1]
+            except Exception as e:
                 raise GandiException(1002, e)
 
             time.sleep(check_interval)

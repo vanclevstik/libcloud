@@ -18,13 +18,14 @@ import sys
 import tempfile
 
 import mock
+import json
 
 from libcloud.storage.drivers.backblaze_b2 import BackblazeB2StorageDriver
 from libcloud.utils.py3 import httplib
+from libcloud.utils.py3 import b
+from libcloud.utils.files import exhaust_iterator
 from libcloud.test import unittest
-from libcloud.test import StorageMockHttp
-from libcloud.test import MockRawResponse
-from libcloud.test import MockHttpTestCase
+from libcloud.test import MockHttp
 from libcloud.test.file_fixtures import StorageFileFixtures
 
 
@@ -37,13 +38,11 @@ class BackblazeB2StorageDriverTestCase(unittest.TestCase):
     driver_args = ('a', 'b')
 
     def setUp(self):
-        self.driver_klass.connectionCls.authCls = MockAuthConn()
-        self.driver_klass.connectionCls.conn_classes = (
-            None, BackblazeB2MockHttp)
-        self.driver_klass.connectionCls.rawResponseCls = \
-            BackblazeB2MockRawResponse
+        self.driver_klass.connectionCls.authCls.conn_class = BackblazeB2MockHttp
+        self.driver_klass.connectionCls.conn_class = \
+            BackblazeB2MockHttp
+
         BackblazeB2MockHttp.type = None
-        BackblazeB2MockRawResponse.type = None
         self.driver = self.driver_klass(*self.driver_args)
 
     def test_list_containers(self):
@@ -97,9 +96,10 @@ class BackblazeB2StorageDriverTestCase(unittest.TestCase):
     def test_download_object_as_stream(self):
         container = self.driver.list_containers()[0]
         obj = self.driver.list_container_objects(container=container)[0]
-        result = self.driver.download_object_as_stream(obj=obj)
-        result = ''.join([x.decode('utf-8') for x in list(result)])
-        self.assertEqual(result, 'ab')
+
+        stream = self.driver.download_object_as_stream(obj=obj, chunk_size=1024)
+        self.assertTrue(hasattr(stream, '__iter__'))
+        self.assertEqual(exhaust_iterator(stream), b('ab'))
 
     def test_upload_object(self):
         file_path = os.path.abspath(__file__)
@@ -113,11 +113,14 @@ class BackblazeB2StorageDriverTestCase(unittest.TestCase):
     def test_upload_object_via_stream(self):
         container = self.driver.list_containers()[0]
         file_path = os.path.abspath(__file__)
-        file = open(file_path, 'rb')
-        iterator = iter(file)
-        obj = self.driver.upload_object_via_stream(iterator=iterator,
-                                                   container=container,
-                                                   object_name='test0007.txt')
+
+        with open(file_path, 'rb') as fp:
+            iterator = iter(fp)
+
+            obj = self.driver.upload_object_via_stream(iterator=iterator,
+                                                       container=container,
+                                                       object_name='test0007.txt')
+
         self.assertEqual(obj.name, 'test0007.txt')
         self.assertEqual(obj.size, 24)
         self.assertEqual(obj.extra['fileId'], 'abcde')
@@ -156,8 +159,20 @@ class BackblazeB2StorageDriverTestCase(unittest.TestCase):
         self.assertEqual(url, 'https://podxxx.backblaze.com/b2api/v1/b2_upload_file/abcd/defg')
 
 
-class BackblazeB2MockHttp(StorageMockHttp, MockHttpTestCase):
+class BackblazeB2MockHttp(MockHttp):
     fixtures = StorageFileFixtures('backblaze_b2')
+
+    def _b2api_v1_b2_authorize_account(self, method, url, body, headers):
+        if method == 'GET':
+            body = json.dumps({
+                'accountId': 'test',
+                'apiUrl': 'https://apiNNN.backblazeb2.com',
+                'downloadUrl': 'https://f002.backblazeb2.com',
+                'authorizationToken': 'test'
+            })
+        else:
+            raise AssertionError('Unsupported method')
+        return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 
     def _b2api_v1_b2_list_buckets(self, method, url, body, headers):
         if method == 'GET':
@@ -224,8 +239,6 @@ class BackblazeB2MockHttp(StorageMockHttp, MockHttpTestCase):
             raise AssertionError('Unsupported method')
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 
-
-class BackblazeB2MockRawResponse(MockRawResponse):
     def _file_test00001_2_txt(self, method, url, body, headers):
         # test_download_object
         if method == 'GET':
@@ -233,6 +246,7 @@ class BackblazeB2MockRawResponse(MockRawResponse):
         else:
             raise AssertionError('Unsupported method')
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
+
 
 if __name__ == '__main__':
     sys.exit(unittest.main())

@@ -24,7 +24,7 @@ OAUTH2: Service Accounts and Client IDs for Installed Applications.
 Both are initially set up from the Cloud Console Console -
 https://cloud.google.com/console
 
-Setting up Service Account authentication (note that you need the PyCrypto
+Setting up Service Account authentication (note that you need the cryptography
 package installed to use this):
 
 - Go to the Console
@@ -70,8 +70,9 @@ from __future__ import with_statement
 try:
     import simplejson as json
 except ImportError:
-    import json
+    import json  # type: ignore
 
+import logging
 import base64
 import errno
 import time
@@ -84,22 +85,22 @@ from libcloud.utils.connection import get_response_object
 from libcloud.utils.py3 import b, httplib, urlencode, urlparse, PY3
 from libcloud.common.base import (ConnectionUserAndKey, JsonResponse,
                                   PollingConnection)
+from libcloud.common.base import BaseDriver
 from libcloud.common.types import (ProviderError,
                                    LibcloudError)
 
 try:
-    from Crypto.Hash import SHA256
-    from Crypto.PublicKey import RSA
-    from Crypto.Signature import PKCS1_v1_5
-    import Crypto.Random
-    Crypto.Random.atfork()
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.hashes import SHA256
+    from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
 except ImportError:
-    # The pycrypto library is unavailable
-    SHA256 = None
-    RSA = None
-    PKCS1_v1_5 = None
+    # The cryptography library is unavailable
+    SHA256 = None  # type: ignore
 
 UTC_TIMESTAMP_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
+
+LOG = logging.getLogger(__name__)
 
 
 def _utcnow():
@@ -110,10 +111,16 @@ def _utcnow():
 
 
 def _utc_timestamp(datetime_obj):
+    """
+    Return string of datetime_obj in the UTC Timestamp Format
+    """
     return datetime_obj.strftime(UTC_TIMESTAMP_FORMAT)
 
 
 def _from_utc_timestamp(timestamp):
+    """
+    Return datetime obj where date and time are pulled from timestamp string.
+    """
     return datetime.datetime.strptime(timestamp, UTC_TIMESTAMP_FORMAT)
 
 
@@ -211,7 +218,9 @@ class GoogleResponse(JsonResponse):
             code = err.get('code')
             message = err.get('message')
         else:
-            code = err.get('reason', None)
+            code = None
+            if 'reason' in err:
+                code = err.get('reason')
             message = body.get('error_description', err)
 
         return (code, message)
@@ -229,7 +238,7 @@ class GoogleResponse(JsonResponse):
         json_error = False
         try:
             body = json.loads(self.body)
-        except:
+        except Exception:
             # If there is both a JSON parsing error and an unsuccessful http
             # response (like a 404), we want to raise the http error and not
             # the JSON one, so don't raise JsonParseError here.
@@ -285,7 +294,7 @@ class GoogleResponse(JsonResponse):
             raise GoogleBaseError(message, self.status, code)
 
 
-class GoogleBaseDriver(object):
+class GoogleBaseDriver(BaseDriver):
     name = "Google API"
 
 
@@ -335,6 +344,9 @@ class GoogleBaseAuthConnection(ConnectionUserAndKey):
         super(GoogleBaseAuthConnection, self).__init__(user_id, key, **kwargs)
 
     def add_default_headers(self, headers):
+        """
+        Add defaults for 'Content-Type' and 'Host' headers.
+        """
         headers['Content-Type'] = "application/x-www-form-urlencoded"
         headers['Host'] = self.host
         return headers
@@ -409,7 +421,7 @@ class GoogleInstalledAppAuthConnection(GoogleBaseAuthConnection):
         if PY3:
             code = input('Enter Code: ')
         else:
-            code = raw_input('Enter Code: ')
+            code = raw_input('Enter Code: ')  # NOQA pylint: disable=undefined-variable
         return code
 
     def get_new_token(self):
@@ -458,8 +470,8 @@ class GoogleServiceAcctAuthConnection(GoogleBaseAuthConnection):
     """Authentication class for "Service Account" authentication."""
     def __init__(self, user_id, key, *args, **kwargs):
         """
-        Check to see if PyCrypto is available, and convert key file path into a
-        key string if the key is in a file.
+        Check to see if cryptography is available, and convert key file path
+        into a key string if the key is in a file.
 
         :param  user_id: Email address to be used for Service Account
                 authentication.
@@ -469,7 +481,7 @@ class GoogleServiceAcctAuthConnection(GoogleBaseAuthConnection):
         :type   key: ``str``
         """
         if SHA256 is None:
-            raise GoogleAuthError('PyCrypto library required for '
+            raise GoogleAuthError('cryptography library required for '
                                   'Service Account Authentication.')
         # Check to see if 'key' is a file and read the file if it is.
         if key.find("PRIVATE KEY---") == -1:
@@ -512,10 +524,17 @@ class GoogleServiceAcctAuthConnection(GoogleBaseAuthConnection):
         # The message contains both the header and claim set
         message = b'.'.join((header_enc, claim_set_enc))
         # Then the message is signed using the key supplied
-        key = RSA.importKey(self.key)
-        hash_func = SHA256.new(message)
-        signer = PKCS1_v1_5.new(key)
-        signature = base64.urlsafe_b64encode(signer.sign(hash_func))
+        key = serialization.load_pem_private_key(
+            b(self.key),
+            password=None,
+            backend=default_backend()
+        )
+        signature = key.sign(
+            data=b(message),
+            padding=PKCS1v15(),
+            algorithm=SHA256()
+        )
+        signature = base64.urlsafe_b64encode(signature)
 
         # Finally the message and signature are sent to get a token
         jwt = b'.'.join((message, signature))
@@ -571,10 +590,10 @@ class GoogleAuthType(object):
     def guess_type(cls, user_id):
         if cls._is_sa(user_id):
             return cls.SA
-        elif cls._is_gce():
-            return cls.GCE
         elif cls._is_gcs_s3(user_id):
             return cls.GCS_S3
+        elif cls._is_gce():
+            return cls.GCE
         else:
             return cls.IA
 
@@ -596,9 +615,9 @@ class GoogleAuthType(object):
     @staticmethod
     def _is_gcs_s3(user_id):
         """
-        Checks S3 key format: 20 alphanumeric chars starting with GOOG.
+        Checks S3 key format: alphanumeric chars starting with GOOG.
         """
-        return len(user_id) == 20 and user_id.startswith('GOOG')
+        return user_id.startswith('GOOG')
 
     @staticmethod
     def _is_sa(user_id):
@@ -677,8 +696,12 @@ class GoogleOAuth2Credential(object):
             with open(filename, 'r') as f:
                 data = f.read()
             token = json.loads(data)
-        except IOError:
-            pass
+        except (IOError, ValueError) as e:
+            # Note: File related errors (IOError) and errors related to json
+            # parsing of the data (ValueError) are not fatal.
+            LOG.info('Failed to read cached auth token from file "%s": %s',
+                     filename, str(e))
+
         return token
 
     def _write_token_to_file(self):
@@ -686,15 +709,26 @@ class GoogleOAuth2Credential(object):
         Write token to credential file.
         Mocked in libcloud.test.common.google.GoogleTestCase.
         """
-        filename = os.path.realpath(os.path.expanduser(self.credential_file))
-        data = json.dumps(self.token)
-        with os.fdopen(os.open(filename, os.O_CREAT | os.O_WRONLY,
-                               int('600', 8)), 'w') as f:
-            f.write(data)
+        filename = os.path.expanduser(self.credential_file)
+        filename = os.path.realpath(filename)
+
+        try:
+            data = json.dumps(self.token)
+            write_flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+            with os.fdopen(os.open(filename, write_flags,
+                                   int('600', 8)), 'w') as f:
+                f.write(data)
+        except Exception as e:
+            # Note: Failure to write (cache) token in a file is not fatal. It
+            # simply means degraded performance since we will need to acquire a
+            # new token each time script runs.
+            LOG.info('Failed to write auth token to file "%s": %s',
+                     filename, str(e))
 
 
 class GoogleBaseConnection(ConnectionUserAndKey, PollingConnection):
     """Base connection class for interacting with Google APIs."""
+
     driver = GoogleBaseDriver
     responseCls = GoogleResponse
     host = 'www.googleapis.com'
@@ -776,8 +810,7 @@ class GoogleBaseConnection(ConnectionUserAndKey, PollingConnection):
             try:
                 return super(GoogleBaseConnection, self).request(
                     *args, **kwargs)
-            except socket.error:
-                e = sys.exc_info()[1]
+            except socket.error as e:
                 if e.errno == errno.ECONNRESET:
                     tries = tries + 1
                 else:

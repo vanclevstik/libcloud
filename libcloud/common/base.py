@@ -13,45 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Union
+from typing import Type
+from typing import Optional
+
+import json
 import os
-import sys
 import ssl
 import socket
 import copy
 import binascii
 import time
 
-import xml.dom.minidom
-
-try:
-    from lxml import etree as ET
-except ImportError:
-    from xml.etree import ElementTree as ET
-
-from pipes import quote as pquote
-
-try:
-    import simplejson as json
-except:
-    import json
+from libcloud.utils.py3 import ET
 
 import libcloud
 
-from libcloud.utils.py3 import PY3, PY25
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import urlparse
 from libcloud.utils.py3 import urlencode
-from libcloud.utils.py3 import StringIO
-from libcloud.utils.py3 import u
-from libcloud.utils.py3 import b
 
 from libcloud.utils.misc import lowercase_keys, retry
-from libcloud.utils.compression import decompress_data
-
 from libcloud.common.exceptions import exception_from_message
 from libcloud.common.types import LibcloudError, MalformedResponseError
-from libcloud.httplib_ssl import LibcloudHTTPConnection
-from libcloud.httplib_ssl import LibcloudHTTPSConnection
+from libcloud.http import LibcloudConnection, HttpLibResponseProxy
 
 __all__ = [
     'RETRY_FAILED_HTTP_REQUESTS',
@@ -63,8 +48,6 @@ __all__ = [
     'ConnectionKey',
     'ConnectionUserAndKey',
     'CertificateConnection',
-    'LoggingHTTPConnection',
-    'LoggingHTTPSConnection',
 
     'Response',
     'HTTPResponse',
@@ -75,6 +58,13 @@ __all__ = [
 
 # Module level variable indicates if the failed HTTP requests should be retried
 RETRY_FAILED_HTTP_REQUESTS = False
+
+# Set to True to allow double slashes in the URL path. This way
+# morph_action_hook() won't strip potentially double slashes in the URLs.
+# This is to support scenarios such as this one -
+# https://github.com/apache/libcloud/issues/1529.
+# We default it to False for backward compatibility reasons.
+ALLOW_PATH_DOUBLE_SLASHES = False
 
 
 class LazyObject(object):
@@ -134,10 +124,16 @@ class Response(object):
     A base Response class to derive from.
     """
 
-    status = httplib.OK  # Response status code
-    headers = {}  # Response headers
-    body = None  # Raw response body
-    object = None  # Parsed response body
+    # Response status code
+    status = httplib.OK  # type: int
+    # Response headers
+    headers = {}  # type: dict
+
+    # Raw response body
+    body = None
+
+    # Parsed response body
+    object = None
 
     error = None  # Reason returned by the server.
     connection = None  # Parent connection class
@@ -155,23 +151,15 @@ class Response(object):
 
         # http.client In Python 3 doesn't automatically lowercase the header
         # names
-        self.headers = lowercase_keys(dict(response.getheaders()))
+        self.headers = lowercase_keys(dict(response.headers))
         self.error = response.reason
-        self.status = response.status
+        self.status = response.status_code
+        self.request = response.request
+        self.iter_content = response.iter_content
 
-        # This attribute is set when using LoggingConnection.
-        original_data = getattr(response, '_original_data', None)
-
-        if original_data:
-            # LoggingConnection already decompresses data so it can log it
-            # which means we don't need to decompress it here.
-            self.body = response._original_data
-        else:
-            self.body = self._decompress_response(body=response.read(),
-                                                  headers=self.headers)
-
-        if PY3:
-            self.body = b(self.body).decode('utf-8')
+        self.body = response.text.strip() \
+            if response.text is not None and hasattr(response.text, 'strip') \
+            else ''
 
         if not self.success():
             raise exception_from_message(code=self.status,
@@ -189,7 +177,7 @@ class Response(object):
         :return: Parsed body.
         :rtype: ``str``
         """
-        return self.body
+        return self.body if self.body is not None else ''
 
     def parse_error(self):
         """
@@ -212,31 +200,10 @@ class Response(object):
         :rtype: ``bool``
         :return: ``True`` or ``False``
         """
-        return self.status in [httplib.OK, httplib.CREATED]
-
-    def _decompress_response(self, body, headers):
-        """
-        Decompress a response body if it is using deflate or gzip encoding.
-
-        :param body: Response body.
-        :type body: ``str``
-
-        :param headers: Response headers.
-        :type headers: ``dict``
-
-        :return: Decompressed response
-        :rtype: ``str``
-        """
-        encoding = headers.get('content-encoding', None)
-
-        if encoding in ['zlib', 'deflate']:
-            body = decompress_data('zlib', body)
-        elif encoding in ['gzip', 'x-gzip']:
-            body = decompress_data('gzip', body)
-        else:
-            body = body.strip()
-
-        return body
+        # pylint: disable=E1101
+        import requests
+        return self.status in [requests.codes.ok, requests.codes.created,
+                               httplib.OK, httplib.CREATED, httplib.ACCEPTED]
 
 
 class JsonResponse(Response):
@@ -250,7 +217,7 @@ class JsonResponse(Response):
 
         try:
             body = json.loads(self.body)
-        except:
+        except Exception:
             raise MalformedResponseError(
                 'Failed to parse JSON',
                 body=self.body,
@@ -275,18 +242,16 @@ class XmlResponse(Response):
             except ValueError:
                 # lxml wants a bytes and tests are basically hard-coded to str
                 body = ET.XML(self.body.encode('utf-8'))
-        except:
+        except Exception:
             raise MalformedResponseError('Failed to parse XML',
                                          body=self.body,
                                          driver=self.connection.driver)
         return body
-
     parse_error = parse_body
 
 
 class RawResponse(Response):
-
-    def __init__(self, connection):
+    def __init__(self, connection, response=None):
         """
         :param connection: Parent connection object.
         :type connection: :class:`.Connection`
@@ -297,27 +262,42 @@ class RawResponse(Response):
         self._error = None
         self._reason = None
         self.connection = connection
+        if response is not None:
+            self.headers = lowercase_keys(dict(response.headers))
+            self.error = response.reason
+            self.status = response.status_code
+            self.request = response.request
+            self.iter_content = response.iter_content
+
+    def success(self):
+        """
+        Determine if our request was successful.
+
+        The meaning of this can be arbitrary; did we receive OK status? Did
+        the node get created? Were we authenticated?
+
+        :rtype: ``bool``
+        :return: ``True`` or ``False``
+        """
+        # pylint: disable=E1101
+        import requests
+        return self.status in [requests.codes.ok, requests.codes.created,
+                               httplib.OK, httplib.CREATED, httplib.ACCEPTED]
 
     @property
     def response(self):
         if not self._response:
             response = self.connection.connection.getresponse()
-            self._response, self.body = response, response
+            self._response = HttpLibResponseProxy(response)
             if not self.success():
                 self.parse_error()
         return self._response
 
     @property
-    def status(self):
-        if not self._status:
-            self._status = self.response.status
-        return self._status
-
-    @property
-    def headers(self):
-        if not self._headers:
-            self._headers = lowercase_keys(dict(self.response.getheaders()))
-        return self._headers
+    def body(self):
+        # Note: We use property to avoid saving whole response body into RAM
+        # See https://github.com/apache/libcloud/pull/1132 for details
+        return self.response.body
 
     @property
     def reason(self):
@@ -326,206 +306,20 @@ class RawResponse(Response):
         return self._reason
 
 
-# TODO: Move this to a better location/package
-class LoggingConnection():
-    """
-    Debug class to log all HTTP(s) requests as they could be made
-    with the curl command.
-
-    :cvar log: file-like object that logs entries are written to.
-    """
-
-    log = None
-    http_proxy_used = False
-
-    def _log_response(self, r):
-        rv = "# -------- begin %d:%d response ----------\n" % (id(self), id(r))
-        ht = ""
-        v = r.version
-        if r.version == 10:
-            v = "HTTP/1.0"
-        if r.version == 11:
-            v = "HTTP/1.1"
-        ht += "%s %s %s\r\n" % (v, r.status, r.reason)
-        body = r.read()
-        for h in r.getheaders():
-            ht += "%s: %s\r\n" % (h[0].title(), h[1])
-        ht += "\r\n"
-
-        # this is evil. laugh with me. ha arharhrhahahaha
-        class fakesock(object):
-            def __init__(self, s):
-                self.s = s
-
-            def makefile(self, *args, **kwargs):
-                if PY3:
-                    from io import BytesIO
-                    cls = BytesIO
-                else:
-                    cls = StringIO
-
-                return cls(b(self.s))
-        rr = r
-        headers = lowercase_keys(dict(r.getheaders()))
-
-        encoding = headers.get('content-encoding', None)
-        content_type = headers.get('content-type', None)
-
-        if encoding in ['zlib', 'deflate']:
-            body = decompress_data('zlib', body)
-        elif encoding in ['gzip', 'x-gzip']:
-            body = decompress_data('gzip', body)
-
-        pretty_print = os.environ.get('LIBCLOUD_DEBUG_PRETTY_PRINT_RESPONSE',
-                                      False)
-
-        if r.chunked:
-            ht += "%x\r\n" % (len(body))
-            ht += body.decode('utf-8')
-            ht += "\r\n0\r\n"
-        else:
-            if pretty_print and content_type == 'application/json':
-                try:
-                    body = json.loads(body.decode('utf-8'))
-                    body = json.dumps(body, sort_keys=True, indent=4)
-                except:
-                    # Invalid JSON or server is lying about content-type
-                    pass
-            elif pretty_print and content_type == 'text/xml':
-                try:
-                    elem = xml.dom.minidom.parseString(body.decode('utf-8'))
-                    body = elem.toprettyxml()
-                except Exception:
-                    # Invalid XML
-                    pass
-
-            ht += u(body)
-
-        if sys.version_info >= (2, 6) and sys.version_info < (2, 7):
-            cls = HTTPResponse
-        else:
-            cls = httplib.HTTPResponse
-
-        rr = cls(sock=fakesock(ht), method=r._method,
-                 debuglevel=r.debuglevel)
-        rr.begin()
-        rv += ht
-        rv += ("\n# -------- end %d:%d response ----------\n"
-               % (id(self), id(r)))
-
-        rr._original_data = body
-        return (rr, rv)
-
-    def _log_curl(self, method, url, body, headers):
-        # pylint: disable=no-member
-
-        cmd = ["curl"]
-
-        if self.http_proxy_used:
-            if self.proxy_username and self.proxy_password:
-                proxy_url = 'http://%s:%s@%s:%s' % (self.proxy_username,
-                                                    self.proxy_password,
-                                                    self.proxy_host,
-                                                    self.proxy_port)
-            else:
-                proxy_url = 'http://%s:%s' % (self.proxy_host,
-                                              self.proxy_port)
-            proxy_url = pquote(proxy_url)
-            cmd.extend(['--proxy', proxy_url])
-
-        cmd.extend(['-i'])
-
-        if method.lower() == 'head':
-            # HEAD method need special handling
-            cmd.extend(["--head"])
-        else:
-            cmd.extend(["-X", pquote(method)])
-
-        for h in headers:
-            cmd.extend(["-H", pquote("%s: %s" % (h, headers[h]))])
-
-        cert_file = getattr(self, 'cert_file', None)
-
-        if cert_file:
-            cmd.extend(["--cert", pquote(cert_file)])
-
-        # TODO: in python 2.6, body can be a file-like object.
-        if body is not None and len(body) > 0:
-            cmd.extend(["--data-binary", pquote(body)])
-
-        cmd.extend(["--compress"])
-        cmd.extend([pquote("%s://%s:%d%s" % (self.protocol, self.host,
-                                             self.port, url))])
-        return " ".join(cmd)
-
-
-class LoggingHTTPSConnection(LoggingConnection, LibcloudHTTPSConnection):
-    """
-    Utility Class for logging HTTPS connections
-    """
-
-    protocol = 'https'
-
-    def getresponse(self):
-        r = LibcloudHTTPSConnection.getresponse(self)
-        if self.log is not None:
-            r, rv = self._log_response(r)
-            self.log.write(rv + "\n")
-            self.log.flush()
-        return r
-
-    def request(self, method, url, body=None, headers=None):
-        headers.update({'X-LC-Request-ID': str(id(self))})
-        if self.log is not None:
-            pre = "# -------- begin %d request ----------\n" % id(self)
-            self.log.write(pre +
-                           self._log_curl(method, url, body, headers) + "\n")
-            self.log.flush()
-        return LibcloudHTTPSConnection.request(self, method, url, body,
-                                               headers)
-
-
-class LoggingHTTPConnection(LoggingConnection, LibcloudHTTPConnection):
-    """
-    Utility Class for logging HTTP connections
-    """
-
-    protocol = 'http'
-
-    def getresponse(self):
-        r = LibcloudHTTPConnection.getresponse(self)
-        if self.log is not None:
-            r, rv = self._log_response(r)
-            self.log.write(rv + "\n")
-            self.log.flush()
-        return r
-
-    def request(self, method, url, body=None, headers=None):
-        headers.update({'X-LC-Request-ID': str(id(self))})
-        if self.log is not None:
-            pre = '# -------- begin %d request ----------\n' % id(self)
-            self.log.write(pre +
-                           self._log_curl(method, url, body, headers) + "\n")
-            self.log.flush()
-        return LibcloudHTTPConnection.request(self, method, url,
-                                              body, headers)
-
-
 class Connection(object):
     """
     A Base Connection class to derive from.
     """
-    # conn_classes = (LoggingHTTPSConnection)
-    conn_classes = (LibcloudHTTPConnection, LibcloudHTTPSConnection)
+    conn_class = LibcloudConnection
 
     responseCls = Response
     rawResponseCls = RawResponse
     connection = None
-    host = '127.0.0.1'
+    host = '127.0.0.1'  # type: str
     port = 443
-    timeout = None
+    timeout = None  # type: Optional[Union[int, float]]
     secure = 1
-    driver = None
+    driver = None  # type:  Type[BaseDriver]
     action = None
     cache_busting = False
     backoff = None
@@ -569,15 +363,20 @@ class Connection(object):
 
     def set_http_proxy(self, proxy_url):
         """
-        Set a HTTP proxy which will be used with this connection.
+        Set a HTTP / HTTPS proxy which will be used with this connection.
 
         :param proxy_url: Proxy URL (e.g. http://<hostname>:<port> without
                           authentication and
-                          http://<username>:<password>@<hostname>:<port> for
-                          basic auth authentication information.
+                          <scheme>://<username>:<password>@<hostname>:<port>
+                          for basic auth authentication information.
         :type proxy_url: ``str``
         """
         self.proxy_url = proxy_url
+
+        # NOTE: Because of the way connection instantion works, we need to call
+        # self.connection.set_http_proxy() here. Just setting "self.proxy_url"
+        # won't work.
+        self.connection.set_http_proxy(proxy_url=proxy_url)
 
     def set_context(self, context):
         if not isinstance(context, dict):
@@ -631,11 +430,10 @@ class Connection(object):
         connection = None
         secure = self.secure
 
-        # pylint: disable=no-member
-
         if getattr(self, 'base_url', None) and base_url is None:
             (host, port,
-             secure, request_path) = self._tuple_from_url(self.base_url)
+             secure, request_path) = \
+                self._tuple_from_url(getattr(self, 'base_url'))
         elif base_url is not None:
             (host, port,
              secure, request_path) = self._tuple_from_url(base_url)
@@ -652,28 +450,27 @@ class Connection(object):
         if not hasattr(kwargs, 'port'):
             kwargs.update({'port': port})
 
+        if not hasattr(kwargs, 'secure'):
+            kwargs.update({'secure': self.secure})
+
         if not hasattr(kwargs, 'key_file') and hasattr(self, 'key_file'):
-            kwargs.update({'key_file': self.key_file})
+            kwargs.update({'key_file': getattr(self, 'key_file')})
 
         if not hasattr(kwargs, 'cert_file') and hasattr(self, 'cert_file'):
-            kwargs.update({'cert_file': self.cert_file})
+            kwargs.update({'cert_file': getattr(self, 'cert_file')})
 
-        #  kwargs = {'host': host, 'port': int(port)}
-
-        # Timeout is only supported in Python 2.6 and later
-        # http://docs.python.org/library/httplib.html#httplib.HTTPConnection
-        if self.timeout and not PY25:
+        if self.timeout:
             kwargs.update({'timeout': self.timeout})
 
         if self.proxy_url:
             kwargs.update({'proxy_url': self.proxy_url})
 
-        connection = self.conn_classes[secure](**kwargs)
+        connection = self.conn_class(**kwargs)
         # You can uncoment this line, if you setup a reverse proxy server
         # which proxies to your endpoint, and lets you easily capture
         # connections in cleartext when you setup the proxy to do SSL
         # for you
-        # connection = self.conn_classes[False]("127.0.0.1", 8080)
+        # connection = self.conn_class("127.0.0.1", 8080)
 
         self.connection = connection
 
@@ -703,7 +500,7 @@ class Connection(object):
         self.ua.append(token)
 
     def request(self, action, params=None, data=None, headers=None,
-                method='GET', raw=False):
+                method='GET', raw=False, stream=False, json=None):
         """
         Request a given `action`.
 
@@ -732,6 +529,11 @@ class Connection(object):
         :param raw: True to perform a "raw" request aka only send the headers
                      and use the rawResponseCls class. This is used with
                      storage API when uploading a file.
+
+        :type stream: ``bool``
+        :param stream: True to return an iterator in Response.iter_content
+                    and allow streaming of the response data
+                    (for downloading large files)
 
         :return: An :class:`Response` instance.
         :rtype: :class:`Response` instance
@@ -780,15 +582,6 @@ class Connection(object):
 
         if data:
             data = self.encode_data(data)
-            headers['Content-Length'] = str(len(data))
-        elif method.upper() in ['POST', 'PUT'] and not raw:
-            # Only send Content-Length 0 with POST and PUT request.
-            #
-            # Note: Content-Length is not added when using "raw" mode means
-            # means that headers are upfront and the body is sent at some point
-            # later on. With raw mode user can specify Content-Length with
-            # "data" not being set.
-            headers['Content-Length'] = '0'
 
         params, headers = self.pre_connect_hook(params, headers)
 
@@ -800,21 +593,21 @@ class Connection(object):
         else:
             url = action
 
-        # Removed terrible hack...this a less-bad hack that doesn't execute a
-        # request twice, but it's still a hack.
-        self.connect()
+        # IF connection has not yet been established
+        if self.connection is None:
+            self.connect()
+
         try:
             # @TODO: Should we just pass File object as body to request method
             # instead of dealing with splitting and sending the file ourselves?
             if raw:
-                self.connection.putrequest(method, url,
-                                           skip_host=1,
-                                           skip_accept_encoding=1)
-
-                for key, value in list(headers.items()):
-                    self.connection.putheader(key, str(value))
-
-                self.connection.endheaders()
+                self.connection.prepared_request(
+                    method=method,
+                    url=url,
+                    body=data,
+                    headers=headers,
+                    raw=raw,
+                    stream=stream)
             else:
                 if retry_enabled:
                     retry_request = retry(timeout=self.timeout,
@@ -823,12 +616,12 @@ class Connection(object):
                     retry_request(self.connection.request)(method=method,
                                                            url=url,
                                                            body=data,
-                                                           headers=headers)
+                                                           headers=headers,
+                                                           stream=stream)
                 else:
                     self.connection.request(method=method, url=url, body=data,
-                                            headers=headers)
-        except socket.gaierror:
-            e = sys.exc_info()[1]
+                                            headers=headers, stream=stream)
+        except socket.gaierror as e:
             message = str(e)
             errno = getattr(e, 'errno', None)
 
@@ -845,14 +638,14 @@ class Connection(object):
                 raise socket.gaierror(msg)
             self.reset_context()
             raise e
-        except ssl.SSLError:
-            e = sys.exc_info()[1]
+        except ssl.SSLError as e:
             self.reset_context()
             raise ssl.SSLError(str(e))
 
         if raw:
             responseCls = self.rawResponseCls
-            kwargs = {'connection': self}
+            kwargs = {'connection': self,
+                      'response': self.connection.getresponse()}
         else:
             responseCls = self.responseCls
             kwargs = {'connection': self,
@@ -867,7 +660,27 @@ class Connection(object):
         return response
 
     def morph_action_hook(self, action):
-        return self.request_path + action
+        """
+        Here we strip any duplicated leading or traling slashes to
+        prevent typos and other issues where some APIs don't correctly
+        handle double slashes.
+
+        Keep in mind that in some situations, "/" is a vallid path name
+        so we have a module flag which disables this behavior
+        (https://github.com/apache/libcloud/issues/1529).
+        """
+        if ALLOW_PATH_DOUBLE_SLASHES:
+            # Special case to support scenarios where double slashes are
+            # valid - e.g. for S3 paths - /bucket//path1/path2.txt
+            return self.request_path + action
+
+        url = urlparse.urljoin(self.request_path.lstrip('/').rstrip('/') +
+                               '/', action.lstrip('/'))
+
+        if not url.startswith('/'):
+            return '/' + url
+        else:
+            return url
 
     def add_default_params(self, params):
         """
@@ -1085,12 +898,39 @@ class CertificateConnection(Connection):
         self.cert_file = cert_file
 
 
+class KeyCertificateConnection(CertificateConnection):
+    """
+    Base connection class which accepts both ``key_file`` and ``cert_file``
+    argument.
+    """
+
+    key_file = None
+
+    def __init__(self, key_file, cert_file, secure=True, host=None, port=None,
+                 url=None, proxy_url=None, timeout=None, backoff=None,
+                 retry_delay=None, ca_cert=None):
+        """
+        Initialize `cert_file`; set `secure` to an ``int`` based on
+        passed value.
+        """
+        super(KeyCertificateConnection, self).__init__(cert_file,
+                                                       secure=secure,
+                                                       host=host,
+                                                       port=port, url=url,
+                                                       timeout=timeout,
+                                                       backoff=backoff,
+                                                       retry_delay=retry_delay,
+                                                       proxy_url=proxy_url)
+
+        self.key_file = key_file
+
+
 class ConnectionUserAndKey(ConnectionKey):
     """
     Base connection class which accepts a ``user_id`` and ``key`` argument.
     """
 
-    user_id = None
+    user_id = None  # type: int
 
     def __init__(self, user_id, key, secure=True, host=None, port=None,
                  url=None, timeout=None, proxy_url=None,
@@ -1109,7 +949,7 @@ class BaseDriver(object):
     Base driver class from which other classes can inherit from.
     """
 
-    connectionCls = ConnectionKey
+    connectionCls = ConnectionKey  # type: Type[Connection]
 
     def __init__(self, key, secret=None, secure=True, host=None, port=None,
                  api_version=None, region=None, **kwargs):
@@ -1144,6 +984,15 @@ class BaseDriver(object):
         self.key = key
         self.secret = secret
         self.secure = secure
+        self.api_version = api_version
+        self.region = region
+
+        conn_kwargs = self._ex_connection_class_kwargs()
+        conn_kwargs.update({'timeout': kwargs.pop('timeout', None),
+                            'retry_delay': kwargs.pop('retry_delay', None),
+                            'backoff': kwargs.pop('backoff', None),
+                            'proxy_url': kwargs.pop('proxy_url', None)})
+
         args = [self.key]
 
         if self.secret is not None:
@@ -1151,42 +1000,17 @@ class BaseDriver(object):
 
         args.append(secure)
 
+        host = conn_kwargs.pop('host', None) or host
+
         if host is not None:
             args.append(host)
 
         if port is not None:
             args.append(port)
 
-        self.api_version = api_version
-        self.region = region
-
-        conn_kwargs = self._ex_connection_class_kwargs()
-
-        # Note: We do that to make sure those additional arguments which are
-        # provided via "_ex_connection_class_kwargs" are not overriden with
-        # None
-        additional_kwargs = ['timeout', 'retry_delay', 'backoff', 'proxy_url']
-        for kwarg_name in additional_kwargs:
-            value = kwargs.pop(kwarg_name, None)
-
-            # Constructor argument has precedence over
-            # _ex_connection_class_kwargs kwarg
-            if value is not None or kwarg_name not in conn_kwargs:
-                conn_kwargs[kwarg_name] = value
-
         self.connection = self.connectionCls(*args, **conn_kwargs)
-
         self.connection.driver = self
         self.connection.connect()
-
-    @classmethod
-    def list_regions(cls):
-        """
-        Method which returns a list of the available / supported regions.
-
-        :rtype: ``list`` of ``str``
-        """
-        return []
 
     def _ex_connection_class_kwargs(self):
         """

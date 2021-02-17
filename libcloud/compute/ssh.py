@@ -17,6 +17,13 @@
 Wraps multiple ways to communicate over SSH.
 """
 
+from typing import Type
+from typing import Optional
+from typing import Tuple
+from typing import List
+from typing import Union
+from typing import cast
+
 have_paramiko = False
 
 try:
@@ -30,6 +37,7 @@ except ImportError:
 # Ref: https://bugs.launchpad.net/paramiko/+bug/392973
 
 import os
+import re
 import time
 import subprocess
 import logging
@@ -50,23 +58,29 @@ __all__ = [
     'SSHCommandTimeoutError'
 ]
 
+SUPPORTED_KEY_TYPES_URL = 'https://libcloud.readthedocs.io/en/latest/compute/deployment.html#supported-private-ssh-key-types' # NOQA
+
 
 class SSHCommandTimeoutError(Exception):
     """
     Exception which is raised when an SSH command times out.
     """
-    def __init__(self, cmd, timeout):
+    def __init__(self, cmd, timeout, stdout=None, stderr=None):
+        # type: (str, float, Optional[str], Optional[str]) -> None
         self.cmd = cmd
         self.timeout = timeout
-        message = 'Command didn\'t finish in %s seconds' % (timeout)
-        super(SSHCommandTimeoutError, self).__init__(message)
+        self.stdout = stdout
+        self.stderr = stderr
+
+        self.message = 'Command didn\'t finish in %s seconds' % (timeout)
+        super(SSHCommandTimeoutError, self).__init__(self.message)
 
     def __repr__(self):
         return ('<SSHCommandTimeoutError: cmd="%s",timeout=%s)>' %
                 (self.cmd, self.timeout))
 
     def __str__(self):
-        return self.message
+        return self.__repr__()
 
 
 class BaseSSHClient(object):
@@ -74,8 +88,15 @@ class BaseSSHClient(object):
     Base class representing a connection over SSH/SCP to a remote node.
     """
 
-    def __init__(self, hostname, port=22, username='root', password=None,
-                 key=None, key_files=None, timeout=None):
+    def __init__(self,
+                 hostname,  # type: str
+                 port=22,  # type: int
+                 username='root',  # type: str
+                 password=None,  # type: Optional[str]
+                 key=None,  # type: Optional[str]
+                 key_files=None,  # type: Optional[Union[str, List[str]]]
+                 timeout=None  # type: Optional[float]
+                 ):
         """
         :type hostname: ``str``
         :keyword hostname: Hostname or IP address to connect to.
@@ -112,6 +133,7 @@ class BaseSSHClient(object):
         self.timeout = timeout
 
     def connect(self):
+        # type: () -> bool
         """
         Connect to the remote node over SSH.
 
@@ -123,6 +145,7 @@ class BaseSSHClient(object):
             'connect not implemented for this ssh client')
 
     def put(self, path, contents=None, chmod=None, mode='w'):
+        # type: (str, Optional[Union[str, bytes]], Optional[int], str) -> str
         """
         Upload a file to the remote node.
 
@@ -144,7 +167,27 @@ class BaseSSHClient(object):
         raise NotImplementedError(
             'put not implemented for this ssh client')
 
+    def putfo(self, path, fo=None, chmod=None):
+        """
+        Upload file like object to the remote server.
+
+        :param path: Path to upload the file to.
+        :type path: ``str``
+
+        :param fo: File like object to read the content from.
+        :type fo: File handle or file like object.
+
+        :type chmod: ``int``
+        :keyword chmod: chmod file to this after creation.
+
+        :return: Full path to the location where a file has been saved.
+        :rtype: ``str``
+        """
+        raise NotImplementedError(
+            'putfo not implemented for this ssh client')
+
     def delete(self, path):
+        # type: (str) -> bool
         """
         Delete/Unlink a file on the remote node.
 
@@ -158,7 +201,8 @@ class BaseSSHClient(object):
         raise NotImplementedError(
             'delete not implemented for this ssh client')
 
-    def run(self, cmd):
+    def run(self, cmd, timeout=None):
+        # type: (str, Optional[float]) -> Tuple[str, str, int]
         """
         Run a command on a remote node.
 
@@ -171,6 +215,7 @@ class BaseSSHClient(object):
             'run not implemented for this ssh client')
 
     def close(self):
+        # type: () -> bool
         """
         Shutdown connection to the remote node.
 
@@ -182,6 +227,7 @@ class BaseSSHClient(object):
             'close not implemented for this ssh client')
 
     def _get_and_setup_logger(self):
+        # type: () -> logging.Logger
         logger = logging.getLogger('libcloud.compute.ssh')
         path = os.getenv('LIBCLOUD_DEBUG')
 
@@ -202,11 +248,22 @@ class ParamikoSSHClient(BaseSSHClient):
     # Maximum number of bytes to read at once from a socket
     CHUNK_SIZE = 4096
 
-    # How long to sleep while waiting for command to finish
-    SLEEP_DELAY = 1.5
+    # How long to sleep while waiting for command to finish (to prevent busy
+    # waiting)
+    SLEEP_DELAY = 0.2
 
-    def __init__(self, hostname, port=22, username='root', password=None,
-                 key=None, key_files=None, key_material=None, timeout=None):
+    def __init__(self,
+                 hostname,  # type: str
+                 port=22,  # type: int
+                 username='root',  # type: str
+                 password=None,  # type: Optional[str]
+                 key=None,  # type: Optional[str]
+                 key_files=None,  # type: Optional[Union[str, List[str]]]
+                 key_material=None,  # type: Optional[str]
+                 timeout=None,  # type: Optional[float]
+                 keep_alive=None,  # type: Optional[int]
+                 use_compression=False  # type: bool
+                 ):
         """
         Authentication is always attempted in the following order:
 
@@ -217,6 +274,12 @@ class ParamikoSSHClient(BaseSSHClient):
           password and key is provided)
         - Plain username/password auth, if a password was given (if password is
           provided)
+
+        :param keep_alive: Optional keep alive internal (in seconds) to use.
+        :type keep_alive: ``int``
+
+        :param use_compression: True to use compression.
+        :type use_compression: ``bool``
         """
         if key_files and key_material:
             raise ValueError(('key_files and key_material arguments are '
@@ -230,10 +293,16 @@ class ParamikoSSHClient(BaseSSHClient):
                                                 timeout=timeout)
 
         self.key_material = key_material
+        self.keep_alive = keep_alive
+        self.use_compression = use_compression
 
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         self.logger = self._get_and_setup_logger()
+
+        # This object is lazily created on first SFTP operation (e.g. put()
+        # method call)
+        self.sftp_client = None
 
     def connect(self):
         conninfo = {'hostname': self.hostname,
@@ -249,7 +318,9 @@ class ParamikoSSHClient(BaseSSHClient):
             conninfo['key_filename'] = self.key_files
 
         if self.key_material:
-            conninfo['pkey'] = self._get_pkey_object(key=self.key_material)
+            conninfo['pkey'] = self._get_pkey_object(
+                key=self.key_material,
+                password=self.password)
 
         if not self.password and not (self.key_files or self.key_material):
             conninfo['allow_agent'] = True
@@ -258,8 +329,39 @@ class ParamikoSSHClient(BaseSSHClient):
         if self.timeout:
             conninfo['timeout'] = self.timeout
 
+        # This is a workaround for paramiko only supporting key files in
+        # format staring with "BEGIN RSA PRIVATE KEY".
+        # If key_files are provided and a key looks like a PEM formatted key
+        # we try to convert it into a format supported by paramiko
+        if (self.key_files and not isinstance(self.key_files, (list, tuple))
+                and os.path.isfile(self.key_files)):
+            with open(self.key_files, 'r') as fp:
+                key_material = fp.read()
+
+            try:
+                pkey = self._get_pkey_object(key=key_material,
+                                             password=self.password)
+            except paramiko.ssh_exception.PasswordRequiredException as e:
+                raise e
+            except Exception:
+                pass
+            else:
+                # It appears key is valid, but it was passed in in an invalid
+                # format. Try to use the converted key directly
+                del conninfo['key_filename']
+                conninfo['pkey'] = pkey
+
         extra = {'_hostname': self.hostname, '_port': self.port,
                  '_username': self.username, '_timeout': self.timeout}
+
+        if self.password:
+            extra['_auth_method'] = 'password'
+        else:
+            extra['_auth_method'] = 'key_file'
+
+            if self.key_files:
+                extra['_key_file'] = self.key_files
+
         self.logger.debug('Connecting to server', extra=extra)
 
         self.client.connect(**conninfo)
@@ -269,7 +371,8 @@ class ParamikoSSHClient(BaseSSHClient):
         extra = {'_path': path, '_mode': mode, '_chmod': chmod}
         self.logger.debug('Uploading file', extra=extra)
 
-        sftp = self.client.open_sftp()
+        sftp = self._get_sftp_client()
+
         # less than ideal, but we need to mkdir stuff otherwise file() fails
         head, tail = psplit(path)
 
@@ -290,19 +393,59 @@ class ParamikoSSHClient(BaseSSHClient):
                 sftp.chdir(part)
 
         cwd = sftp.getcwd()
+        cwd = self._sanitize_cwd(cwd=cwd)
 
         ak = sftp.file(tail, mode=mode)
         ak.write(contents)
         if chmod is not None:
             ak.chmod(chmod)
         ak.close()
-        sftp.close()
 
-        if path[0] == '/':
-            file_path = path
+        file_path = self._sanitize_file_path(cwd=cwd, file_path=path)
+        return file_path
+
+    def putfo(self, path, fo=None, chmod=None):
+        """
+        Upload file like object to the remote server.
+
+        Unlike put(), this method operates on file objects and not directly on
+        file content which makes it much more efficient for large files since
+        it utilizes pipelining.
+        """
+        extra = {'_path': path, '_chmod': chmod}
+        self.logger.debug('Uploading file', extra=extra)
+
+        sftp = self._get_sftp_client()
+
+        # less than ideal, but we need to mkdir stuff otherwise file() fails
+        head, tail = psplit(path)
+
+        if path[0] == "/":
+            sftp.chdir("/")
         else:
-            file_path = pjoin(cwd, path)
+            # Relative path - start from a home directory (~)
+            sftp.chdir('.')
 
+        for part in head.split("/"):
+            if part != "":
+                try:
+                    sftp.mkdir(part)
+                except IOError:
+                    # so, there doesn't seem to be a way to
+                    # catch EEXIST consistently *sigh*
+                    pass
+                sftp.chdir(part)
+
+        cwd = sftp.getcwd()
+        cwd = self._sanitize_cwd(cwd=cwd)
+
+        sftp.putfo(fo, path)
+        if chmod is not None:
+            ak = sftp.file(tail)
+            ak.chmod(chmod)
+            ak.close()
+
+        file_path = self._sanitize_file_path(cwd=cwd, file_path=path)
         return file_path
 
     def delete(self, path):
@@ -315,6 +458,7 @@ class ParamikoSSHClient(BaseSSHClient):
         return True
 
     def run(self, cmd, timeout=None):
+        # type: (str, Optional[float]) -> Tuple[str, str, int]
         """
         Note: This function is based on paramiko's exec_command()
         method.
@@ -323,13 +467,14 @@ class ParamikoSSHClient(BaseSSHClient):
                         finish (optional).
         :type timeout: ``float``
         """
-        extra = {'_cmd': cmd}
-        self.logger.debug('Executing command', extra=extra)
+        extra1 = {'_cmd': cmd}
+        self.logger.debug('Executing command', extra=extra1)
 
         # Use the system default buffer size
         bufsize = -1
 
-        transport = self.client.get_transport()
+        transport = self._get_transport()
+
         chan = transport.open_session()
 
         start_time = time.time()
@@ -367,7 +512,11 @@ class ParamikoSSHClient(BaseSSHClient):
                 # TODO: Is this the right way to clean up?
                 chan.close()
 
-                raise SSHCommandTimeoutError(cmd=cmd, timeout=timeout)
+                stdout_str = stdout.getvalue()  # type: str
+                stderr_str = stderr.getvalue()  # type: str
+                raise SSHCommandTimeoutError(cmd=cmd, timeout=timeout,
+                                             stdout=stdout_str,
+                                             stderr=stderr_str)
 
             stdout.write(self._consume_stdout(chan).getvalue())
             stderr.write(self._consume_stderr(chan).getvalue())
@@ -383,20 +532,27 @@ class ParamikoSSHClient(BaseSSHClient):
             time.sleep(self.SLEEP_DELAY)
 
         # Receive the exit status code of the command we ran.
-        status = chan.recv_exit_status()
+        status = chan.recv_exit_status()  # type: int
 
-        stdout = stdout.getvalue()
-        stderr = stderr.getvalue()
+        stdout_str = stdout.getvalue()
+        stderr_str = stderr.getvalue()
 
-        extra = {'_status': status, '_stdout': stdout, '_stderr': stderr}
-        self.logger.debug('Command finished', extra=extra)
+        extra2 = {'_status': status, '_stdout': stdout_str,
+                  '_stderr': stderr_str}
+        self.logger.debug('Command finished', extra=extra2)
 
-        return [stdout, stderr, status]
+        result = (stdout_str, stderr_str, status)  # type: Tuple[str, str, int]
+        return result
 
     def close(self):
         self.logger.debug('Closing server connection')
 
-        self.client.close()
+        if self.client:
+            self.client.close()
+
+        if self.sftp_client:
+            self.sftp_client.close()
+
         return True
 
     def _consume_stdout(self, chan):
@@ -445,26 +601,142 @@ class ParamikoSSHClient(BaseSSHClient):
         # We only decode data at the end because a single chunk could contain
         # a part of multi byte UTF-8 character (whole multi bytes character
         # could be split over two chunks)
-        result.write(result_bytes.decode('utf-8'))
+        result.write(result_bytes.decode('utf-8', errors='ignore'))
         return result
 
-    def _get_pkey_object(self, key):
+    def _get_pkey_object(self, key, password=None):
         """
         Try to detect private key type and return paramiko.PKey object.
-        """
 
-        for cls in [paramiko.RSAKey, paramiko.DSSKey, paramiko.ECDSAKey]:
+        # NOTE: Paramiko only supports key in PKCS#1 PEM format.
+        """
+        key_types = [
+            (paramiko.RSAKey, 'RSA'),
+            (paramiko.DSSKey, 'DSA'),
+            (paramiko.ECDSAKey, 'EC')
+        ]
+
+        paramiko_version = getattr(paramiko, '__version__', '0.0.0')
+        paramiko_version = tuple([int(c) for c in paramiko_version.split('.')])
+
+        if paramiko_version >= (2, 2, 0):
+            # Ed25519 is only supported in paramiko >= 2.2.0
+            key_types.append((paramiko.ed25519key.Ed25519Key, 'Ed25519'))
+
+        for cls, key_type in key_types:
+            # Work around for paramiko not recognizing keys which start with
+            # "----BEGIN PRIVATE KEY-----"
+            # Since key is already in PEM format, we just try changing the
+            # header and footer
+            key_split = key.strip().splitlines()
+            if (key_split[0] == '-----BEGIN PRIVATE KEY-----' and
+                    key_split[-1] == '-----END PRIVATE KEY-----'):
+                key_split[0] = '-----BEGIN %s PRIVATE KEY-----' % (key_type)
+                key_split[-1] = '-----END %s PRIVATE KEY-----' % (key_type)
+
+                key_value = '\n'.join(key_split)
+            else:
+                # Already a valid key, us it as is
+                key_value = key
+
             try:
-                key = cls.from_private_key(StringIO(key))
-            except paramiko.ssh_exception.SSHException:
+                key = cls.from_private_key(StringIO(key_value), password)
+            except paramiko.ssh_exception.PasswordRequiredException as e:
+                raise e
+            except (paramiko.ssh_exception.SSHException, AssertionError) as e:
+                if 'private key file checkints do not match' in str(e).lower():
+                    msg = ('Invalid password provided for encrypted key. '
+                           'Original error: %s' % (str(e)))
+                    # Indicates invalid password for password protected keys
+                    raise paramiko.ssh_exception.SSHException(msg)
+
                 # Invalid key, try other key type
                 pass
             else:
                 return key
 
-        msg = ('Invalid or unsupported key type (only RSA, DSS and ECDSA keys'
-               ' are supported)')
+        msg = ('Invalid or unsupported key type (only RSA, DSS, ECDSA and'
+               ' Ed25519 keys'
+               ' in PEM format are supported). For more information on '
+               ' supported key file types, see %s' % (SUPPORTED_KEY_TYPES_URL))
         raise paramiko.ssh_exception.SSHException(msg)
+
+    def _sanitize_cwd(self, cwd):
+        # type: (str) -> str
+        # getcwd() returns an invalid path when executing commands on Windows
+        # so we need a special case for that scenario
+        # For example, we convert /C:/Users/Foo -> C:/Users/Foo
+        if re.match(r"^\/\w\:.*$", str(cwd)):
+            cwd = str(cwd[1:])
+
+        return cwd
+
+    def _sanitize_file_path(self, cwd, file_path):
+        # type: (str, str) -> str
+        """
+        Sanitize the provided file path and ensure we always return an
+        absolute path, even if relative path is passed to to this function.
+        """
+
+        if file_path[0] in ['/', '\\'] or re.match(r"^\w\:.*$", file_path):
+            # If it's an absolute path we return path as is
+            # NOTE: We assume it's a Windows absolute path if it's starts with
+            # a drive letter - e.g. C:\\..., D:\\, etc. or with \
+            pass
+        else:
+            if re.match(r"^\w\:.*$", cwd):
+                # Windows path
+                file_path = cwd + '\\' + file_path
+            else:
+                file_path = pjoin(cwd, file_path)
+
+        return file_path
+
+    def _get_transport(self):
+        """
+        Return transport object taking into account keep alive and compression
+        options passed to the constructor.
+        """
+        transport = self.client.get_transport()
+
+        if self.keep_alive:
+            transport.set_keepalive(self.keep_alive)
+
+        if self.use_compression:
+            transport.use_compression(compress=True)
+
+        return transport
+
+    def _get_sftp_client(self):
+        """
+        Create SFTP client from the underlying SSH client.
+
+        This method tries to re-use the existing self.sftp_client (if it
+        exists) and it also tries to verify the connection is opened and if
+        it's not, it will try to re-establish it.
+        """
+        if not self.sftp_client:
+            self.sftp_client = self.client.open_sftp()
+
+        sftp_client = self.sftp_client
+
+        # Verify the connection is still open, if it's not, try to
+        # re-establish it.
+        # We do that, by calling listdir(). If it returns "Socket is closed"
+        # error we assume the connection is closed and we try to re-establish
+        # it.
+        try:
+            sftp_client.listdir(".")
+        except OSError as e:
+            if "socket is closed" in str(e).lower():
+                self.sftp_client = self.client.open_sftp()
+            elif "no such file" in str(e).lower():
+                # Not a fatal exception, means connection is still open
+                pass
+            else:
+                raise e
+
+        return self.sftp_client
 
 
 class ShellOutSSHClient(BaseSSHClient):
@@ -475,8 +747,15 @@ class ShellOutSSHClient(BaseSSHClient):
     Note: This client should not be used in production.
     """
 
-    def __init__(self, hostname, port=22, username='root', password=None,
-                 key=None, key_files=None, timeout=None):
+    def __init__(self,
+                 hostname,  # type: str
+                 port=22,  # type: int
+                 username='root',  # type: str
+                 password=None,  # type: Optional[str]
+                 key=None,  # type: Optional[str]
+                 key_files=None,  # type: Optional[str]
+                 timeout=None  # type: Optional[float]
+                 ):
         super(ShellOutSSHClient, self).__init__(hostname=hostname,
                                                 port=port, username=username,
                                                 password=password,
@@ -502,7 +781,7 @@ class ShellOutSSHClient(BaseSSHClient):
         """
         return True
 
-    def run(self, cmd):
+    def run(self, cmd, timeout=None):
         return self._run_remote_shell_command([cmd])
 
     def put(self, path, contents=None, chmod=None, mode='w'):
@@ -517,6 +796,10 @@ class ShellOutSSHClient(BaseSSHClient):
         self._run_remote_shell_command(cmd)
         return path
 
+    def putfo(self, path, fo=None, chmod=None):
+        content = fo.read()
+        return self.put(path=path, contents=content, chmod=chmod)
+
     def delete(self, path):
         cmd = ['rm', '-rf', path]
         self._run_remote_shell_command(cmd)
@@ -526,9 +809,11 @@ class ShellOutSSHClient(BaseSSHClient):
         return True
 
     def _get_base_ssh_command(self):
+        # type: () -> List[str]
         cmd = ['ssh']
 
         if self.key_files:
+            self.key_files = cast(str, self.key_files)
             cmd += ['-i', self.key_files]
 
         if self.timeout:
@@ -539,6 +824,7 @@ class ShellOutSSHClient(BaseSSHClient):
         return cmd
 
     def _run_remote_shell_command(self, cmd):
+        # type: (List[str]) -> Tuple[str, str, int]
         """
         Run a command on a remote server.
 
@@ -556,13 +842,17 @@ class ShellOutSSHClient(BaseSSHClient):
         child = subprocess.Popen(full_cmd, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE)
         stdout, stderr = child.communicate()
-        return (stdout, stderr, child.returncode)
+
+        stdout_str = cast(str, stdout)
+        stderr_str = cast(str, stdout)
+
+        return (stdout_str, stderr_str, child.returncode)
 
 
 class MockSSHClient(BaseSSHClient):
     pass
 
 
-SSHClient = ParamikoSSHClient
+SSHClient = ParamikoSSHClient  # type: Type[BaseSSHClient]
 if not have_paramiko:
-    SSHClient = MockSSHClient
+    SSHClient = MockSSHClient  # type: ignore

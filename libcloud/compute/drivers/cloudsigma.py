@@ -25,7 +25,7 @@ import base64
 
 try:
     import simplejson as json
-except:
+except Exception:
     import json
 
 from libcloud.utils.py3 import b
@@ -79,14 +79,17 @@ class CloudSigmaNodeDriver(NodeDriver):
 
 class CloudSigmaException(Exception):
     def __str__(self):
+        # pylint: disable=unsubscriptable-object
         return self.args[0]
 
     def __repr__(self):
+        # pylint: disable=unsubscriptable-object
         return "<CloudSigmaException '%s'>" % (self.args[0])
 
 
 class CloudSigmaInsufficientFundsException(Exception):
     def __repr__(self):
+        # pylint: disable=unsubscriptable-object
         return "<CloudSigmaInsufficientFundsException '%s'>" % (self.args[0])
 
 
@@ -113,7 +116,7 @@ class CloudSigma_1_0_Response(Response):
         if self.status == httplib.UNAUTHORIZED:
             raise InvalidCredsError()
 
-        return self.status >= 200 and self.status <= 299
+        return 200 <= self.status <= 299
 
     def parse_body(self):
         if not self.body:
@@ -264,7 +267,8 @@ class CloudSigma_1_0_NodeDriver(CloudSigmaNodeDriver):
                 nodes.append(node)
         return nodes
 
-    def create_node(self, **kwargs):
+    def create_node(self, name, size, image, smp='auto', nic_model='e1000',
+                    vnc_password=None, drive_type='hdd'):
         """
         Creates a CloudSigma instance
 
@@ -287,13 +291,6 @@ class CloudSigma_1_0_NodeDriver(CloudSigmaNodeDriver):
         :keyword    drive_type: Drive type (ssd|hdd). Defaults to hdd.
         :type       drive_type: ``str``
         """
-        size = kwargs['size']
-        image = kwargs['image']
-        smp = kwargs.get('smp', 'auto')
-        nic_model = kwargs.get('nic_model', 'e1000')
-        vnc_password = kwargs.get('vnc_password', None)
-        drive_type = kwargs.get('drive_type', 'hdd')
-
         if nic_model not in ['e1000', 'rtl8139', 'virtio']:
             raise CloudSigmaException('Invalid NIC model specified')
 
@@ -302,8 +299,8 @@ class CloudSigma_1_0_NodeDriver(CloudSigmaNodeDriver):
                                       ' are: hdd, ssd' % (drive_type))
 
         drive_data = {}
-        drive_data.update({'name': kwargs['name'],
-                           'size': '%sG' % (kwargs['size'].disk),
+        drive_data.update({'name': name,
+                           'size': '%sG' % (size.disk),
                            'driveType': drive_type})
 
         response = self.connection.request(
@@ -330,7 +327,7 @@ class CloudSigma_1_0_NodeDriver(CloudSigmaNodeDriver):
 
         node_data = {}
         node_data.update(
-            {'name': kwargs['name'], 'cpu': size.cpu, 'mem': size.ram,
+            {'name': name, 'cpu': size.cpu, 'mem': size.ram,
              'ide:0:0': drive_uuid, 'boot': 'ide:0:0', 'smp': smp})
         node_data.update({'nic:0:model': nic_model, 'nic:0:dhcp': 'auto'})
 
@@ -514,6 +511,12 @@ class CloudSigma_1_0_NodeDriver(CloudSigmaNodeDriver):
         return response.status == 200
 
     def ex_stop_node(self, node):
+        # NOTE: This method is here for backward compatibility reasons after
+        # this method was promoted to be part of the standard compute API in
+        # Libcloud v2.7.0
+        return self.stop_node(node=node)
+
+    def stop_node(self, node):
         """
         Stop (shutdown) a node.
 
@@ -1240,7 +1243,7 @@ class CloudSigma_2_0_NodeDriver(CloudSigmaNodeDriver):
         node = self._to_node(data=response)
         return node
 
-    def ex_start_node(self, node, ex_avoid=None):
+    def start_node(self, node, ex_avoid=None):
         """
         Start a node.
 
@@ -1265,14 +1268,26 @@ class CloudSigma_2_0_NodeDriver(CloudSigmaNodeDriver):
                                         method='POST')
         return response.status == httplib.ACCEPTED
 
-    def ex_stop_node(self, node):
-        """
-        Stop a node.
-        """
+    def stop_node(self, node):
         path = '/servers/%s/action/' % (node.id)
         response = self._perform_action(path=path, action='stop',
                                         method='POST')
         return response.status == httplib.ACCEPTED
+
+    def ex_start_node(self, node, ex_avoid=None):
+        # NOTE: This method is here for backward compatibility reasons after
+        # this method was promoted to be part of the standard compute API in
+        # Libcloud v2.7.0
+        return self.start_node(node=node, ex_avoid=ex_avoid)
+
+    def ex_stop_node(self, node):
+        # NOTE: This method is here for backward compatibility reasons after
+        # this method was promoted to be part of the standard compute API in
+        # Libcloud v2.7.0
+        """
+        Stop a node.
+        """
+        return self.stop_node(node=node)
 
     def ex_clone_node(self, node, name=None, random_vnc_password=None):
         """
@@ -1961,8 +1976,16 @@ class CloudSigma_2_0_NodeDriver(CloudSigmaNodeDriver):
         return subscriptions
 
     def _to_subscription(self, data):
-        start_time = parse_date(data['start_time'])
-        end_time = parse_date(data['end_time'])
+        if data.get('start_time', None):
+            start_time = parse_date(data['start_time'])
+        else:
+            start_time = None
+
+        if data.get('end_time', None):
+            end_time = parse_date(data['end_time'])
+        else:
+            end_time = None
+
         obj_uuid = data['subscribed_object']
 
         subscription = CloudSigmaSubscription(id=data['id'],

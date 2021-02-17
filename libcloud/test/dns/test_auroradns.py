@@ -15,6 +15,7 @@
 import sys
 import json
 
+from libcloud.common.types import ProviderError
 from libcloud.dns.drivers.auroradns import AuroraDNSDriver
 from libcloud.dns.drivers.auroradns import AuroraDNSHealthCheckType
 from libcloud.dns.types import RecordType
@@ -23,7 +24,7 @@ from libcloud.dns.types import ZoneAlreadyExistsError
 from libcloud.dns.types import RecordDoesNotExistError
 from libcloud.dns.base import Zone
 from libcloud.test import LibcloudTestCase
-from libcloud.test import MockHttpTestCase
+from libcloud.test import MockHttp
 from libcloud.test import unittest
 from libcloud.test.file_fixtures import DNSFileFixtures
 from libcloud.test.secrets import DNS_PARAMS_AURORADNS
@@ -33,10 +34,18 @@ from libcloud.utils.py3 import httplib
 class AuroraDNSDriverTests(LibcloudTestCase):
 
     def setUp(self):
-        AuroraDNSDriver.connectionCls.conn_classes = (None,
-                                                      AuroraDNSDriverMockHttp)
+        AuroraDNSDriver.connectionCls.conn_class = AuroraDNSDriverMockHttp
         AuroraDNSDriverMockHttp.type = None
         self.driver = AuroraDNSDriver(*DNS_PARAMS_AURORADNS)
+
+    def test_403_status_code(self):
+        AuroraDNSDriverMockHttp.type = "HTTP_FORBIDDEN"
+
+        with self.assertRaises(ProviderError) as ctx:
+            self.driver.list_zones()
+
+        self.assertEqual(ctx.exception.value, "Authorization failed")
+        self.assertEqual(ctx.exception.http_code, 403)
 
     def test_merge_extra_data(self):
         rdata = {
@@ -87,18 +96,36 @@ class AuroraDNSDriverTests(LibcloudTestCase):
         self.assertEqual(zone, record.zone)
         self.assertEqual(self.driver, record.driver)
 
+    def test_record_types(self):
+        types = self.driver.list_record_types()
+        self.assertEqual(len(types), 12)
+        self.assertTrue(RecordType.A in types)
+        self.assertTrue(RecordType.AAAA in types)
+        self.assertTrue(RecordType.MX in types)
+        self.assertTrue(RecordType.NS in types)
+        self.assertTrue(RecordType.SOA in types)
+        self.assertTrue(RecordType.TXT in types)
+        self.assertTrue(RecordType.CNAME in types)
+        self.assertTrue(RecordType.SRV in types)
+        self.assertTrue(RecordType.DS in types)
+        self.assertTrue(RecordType.SSHFP in types)
+        self.assertTrue(RecordType.PTR in types)
+        self.assertTrue(RecordType.TLSA in types)
+
     def test_list_zones(self):
         zones = self.driver.list_zones()
         self.assertEqual(len(zones), 2)
+        for zone in zones:
+            self.assertTrue(zone.domain.startswith('auroradns'))
 
     def test_create_zone(self):
         zone = self.driver.create_zone('example.com')
-        self.assertEquals(zone.domain, 'example.com')
+        self.assertEqual(zone.domain, 'example.com')
 
     def test_get_zone(self):
         zone = self.driver.get_zone('example.com')
-        self.assertEquals(zone.domain, 'example.com')
-        self.assertEquals(zone.id, 'ffb62570-8414-4578-a346-526b44e320b7')
+        self.assertEqual(zone.domain, 'example.com')
+        self.assertEqual(zone.id, 'ffb62570-8414-4578-a346-526b44e320b7')
 
     def test_delete_zone(self):
         zone = self.driver.get_zone('example.com')
@@ -110,28 +137,28 @@ class AuroraDNSDriverTests(LibcloudTestCase):
                                     type=RecordType.A,
                                     data='127.0.0.1',
                                     extra={'ttl': 900})
-        self.assertEquals(record.id, '5592f1ff')
-        self.assertEquals(record.name, 'localhost')
-        self.assertEquals(record.data, '127.0.0.1')
-        self.assertEquals(record.type, RecordType.A)
-        self.assertEquals(record.extra['ttl'], 900)
+        self.assertEqual(record.id, '5592f1ff')
+        self.assertEqual(record.name, 'localhost')
+        self.assertEqual(record.data, '127.0.0.1')
+        self.assertEqual(record.type, RecordType.A)
+        self.assertEqual(record.extra['ttl'], 900)
 
     def test_get_record(self):
         zone = self.driver.get_zone('example.com')
         record = self.driver.get_record(zone.id, '5592f1ff')
-        self.assertEquals(record.id, '5592f1ff')
-        self.assertEquals(record.name, 'localhost')
-        self.assertEquals(record.data, '127.0.0.1')
-        self.assertEquals(record.type, RecordType.A)
-        self.assertEquals(record.extra['ttl'], 900)
-        self.assertEquals(record.extra['priority'], None)
+        self.assertEqual(record.id, '5592f1ff')
+        self.assertEqual(record.name, 'localhost')
+        self.assertEqual(record.data, '127.0.0.1')
+        self.assertEqual(record.type, RecordType.A)
+        self.assertEqual(record.extra['ttl'], 900)
+        self.assertEqual(record.extra['priority'], None)
 
     def test_update_record(self):
         ttl = 900
         zone = self.driver.get_zone('example.com')
         record = self.driver.get_record(zone.id, '5592f1ff')
         record = record.update(extra={'ttl': ttl})
-        self.assertEquals(record.extra['ttl'], ttl)
+        self.assertEqual(record.extra['ttl'], ttl)
 
     def test_delete_record(self):
         zone = self.driver.get_zone('example.com')
@@ -150,7 +177,7 @@ class AuroraDNSDriverTests(LibcloudTestCase):
             self.fail('expected a ZoneDoesNotExistError')
         except ZoneDoesNotExistError:
             pass
-        except:
+        except Exception:
             raise
 
     def test_delete_zone_non_exist(self):
@@ -161,7 +188,7 @@ class AuroraDNSDriverTests(LibcloudTestCase):
             self.fail('expected a ZoneDoesNotExistError')
         except ZoneDoesNotExistError:
             pass
-        except:
+        except Exception:
             raise
 
     def test_create_zone_already_exist(self):
@@ -170,7 +197,7 @@ class AuroraDNSDriverTests(LibcloudTestCase):
             self.fail('expected a ZoneAlreadyExistsError')
         except ZoneAlreadyExistsError:
             pass
-        except:
+        except Exception:
             raise
 
     def test_list_records_non_exist(self):
@@ -181,7 +208,7 @@ class AuroraDNSDriverTests(LibcloudTestCase):
             self.fail('expected a ZoneDoesNotExistError')
         except ZoneDoesNotExistError:
             pass
-        except:
+        except Exception:
             raise
 
     def test_get_record_non_exist(self):
@@ -190,7 +217,7 @@ class AuroraDNSDriverTests(LibcloudTestCase):
             self.fail('expected a RecordDoesNotExistError')
         except RecordDoesNotExistError:
             pass
-        except:
+        except Exception:
             raise
 
     def test_create_health_check(self):
@@ -231,7 +258,7 @@ class AuroraDNSDriverTests(LibcloudTestCase):
             self.assertEqual(check.type, AuroraDNSHealthCheckType.HTTP)
 
 
-class AuroraDNSDriverMockHttp(MockHttpTestCase):
+class AuroraDNSDriverMockHttp(MockHttp):
     fixtures = DNSFileFixtures('auroradns')
 
     def _zones(self, method, url, body, headers):
@@ -244,6 +271,10 @@ class AuroraDNSDriverMockHttp(MockHttpTestCase):
         else:
             body = self.fixtures.load('zone_list.json')
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
+
+    def _zones_HTTP_FORBIDDEN(self, method, url, body, headers):
+        body = "{}"
+        return (httplib.FORBIDDEN, body, {}, httplib.responses[httplib.FORBIDDEN])
 
     def _zones_example_com(self, method, url, body, headers):
         body = None

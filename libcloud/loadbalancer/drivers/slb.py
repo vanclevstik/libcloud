@@ -18,8 +18,6 @@ __all__ = [
     'SLBDriver'
 ]
 
-import sys
-
 try:
     import simplejson as json
 except ImportError:
@@ -97,7 +95,7 @@ ALGORITHM_TO_SLB_SCHEDULER = {
 
 
 class SLBConnection(SignedAliyunConnection):
-    version = SLB_API_VERSION
+    api_version = SLB_API_VERSION
     host = SLB_API_HOST
     responseCls = AliyunXmlResponse
     service_name = 'slb'
@@ -453,8 +451,7 @@ class SLBDriver(Driver):
                                     algorithm, bandwidth, **kwargs)
             self.ex_start_listener(balancer, port)
             return balancer
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             if balancer is not None:
                 try:
                     self.destroy_balancer(balancer)

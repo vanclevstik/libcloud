@@ -25,15 +25,14 @@ from libcloud.compute.drivers.dummy import DummyNodeDriver
 from libcloud.loadbalancer.base import LoadBalancer, Member, Algorithm
 from libcloud.loadbalancer.drivers.gogrid import GoGridLBDriver
 
-from libcloud.test import MockHttpTestCase
+from libcloud.test import MockHttp
 from libcloud.test.file_fixtures import LoadBalancerFileFixtures
 
 
 class GoGridTests(unittest.TestCase):
 
     def setUp(self):
-        GoGridLBDriver.connectionCls.conn_classes = (None,
-                                                     GoGridLBMockHttp)
+        GoGridLBDriver.connectionCls.conn_class = GoGridLBMockHttp
         GoGridLBMockHttp.type = None
         self.driver = GoGridLBDriver('user', 'key')
 
@@ -85,8 +84,7 @@ class GoGridTests(unittest.TestCase):
                                         members=(Member(None, '10.1.0.10', 80),
                                                  Member(None, '10.1.0.11', 80))
                                         )
-        except LibcloudError:
-            e = sys.exc_info()[1]
+        except LibcloudError as e:
             self.assertTrue(
                 str(e).find('tried to add a member with an IP address not assigned to your account') != -1)
         else:
@@ -112,8 +110,7 @@ class GoGridTests(unittest.TestCase):
         members1 = self.driver.balancer_list_members(balancer=balancer)
         members2 = balancer.list_members()
 
-        expected_members = set(['10.0.0.78:80', '10.0.0.77:80',
-                                '10.0.0.76:80'])
+        expected_members = {'10.0.0.78:80', '10.0.0.77:80', '10.0.0.76:80'}
 
         self.assertEqual(len(members1), 3)
         self.assertEqual(len(members2), 3)
@@ -155,7 +152,7 @@ class GoGridTests(unittest.TestCase):
         self.assertTrue(ret2)
 
 
-class GoGridLBMockHttp(MockHttpTestCase):
+class GoGridLBMockHttp(MockHttp, unittest.TestCase):
     fixtures = LoadBalancerFileFixtures('gogrid')
 
     def _api_grid_loadbalancer_list(self, method, url, body, headers):

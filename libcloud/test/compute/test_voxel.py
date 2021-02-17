@@ -30,7 +30,7 @@ class VoxelTest(unittest.TestCase):
 
     def setUp(self):
 
-        Voxel.connectionCls.conn_classes = (None, VoxelMockHttp)
+        Voxel.connectionCls.conn_class = VoxelMockHttp
         VoxelMockHttp.type = None
         self.driver = Voxel(*VOXEL_PARAMS)
 
@@ -38,8 +38,7 @@ class VoxelTest(unittest.TestCase):
         VoxelMockHttp.type = 'UNAUTHORIZED'
         try:
             self.driver.list_nodes()
-        except Exception:
-            e = sys.exc_info()[1]
+        except Exception as e:
             self.assertTrue(isinstance(e, InvalidCredsError))
         else:
             self.fail('test should have thrown')
@@ -110,7 +109,7 @@ class VoxelTest(unittest.TestCase):
         self.assertEqual(node.id, '1234')
 
         node = self.driver.create_node(name='foo', image=image, size=size,
-                                       location=location, voxel_access=True)
+                                       location=location, ex_voxel_access=True)
         self.assertEqual(node.id, '1234')
 
     def test_reboot_node(self):

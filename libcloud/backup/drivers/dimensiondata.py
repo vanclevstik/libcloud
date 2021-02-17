@@ -13,11 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-try:
-    from lxml import etree as ET
-except ImportError:
-    from xml.etree import ElementTree as ET
-
+from libcloud.utils.py3 import ET
 from libcloud.backup.base import BackupDriver, BackupTarget, BackupTargetJob
 from libcloud.backup.types import BackupTargetType
 from libcloud.backup.types import Provider
@@ -517,6 +513,8 @@ class DimensionDataBackupDriver(BackupDriver):
         """
         if not isinstance(target, BackupTarget):
             target = self.ex_get_target_by_id(target)
+            if target is None:
+                return
         response = self.connection.request_with_orgId_api_1(
             'server/%s/backup' % (target.address),
             method='GET').object

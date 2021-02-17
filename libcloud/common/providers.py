@@ -17,8 +17,6 @@
 Common methods for obtaining a reference to the provider driver class.
 """
 
-import sys
-
 __all__ = [
     'get_driver',
     'set_driver'
@@ -72,6 +70,15 @@ def get_driver(drivers, provider, deprecated_providers=None,
         _mod = __import__(mod_name, globals(), locals(), [driver_name])
         return getattr(_mod, driver_name)
 
+    # NOTE: This is for backward compatibility reasons where user could use
+    # a string value instead of a Provider.FOO enum constant and this function
+    # would still work
+    for provider_name, (mod_name, driver_name) in drivers.items():
+        # NOTE: This works because Provider enum class overloads __eq__
+        if provider.lower() == provider_name.lower():
+            _mod = __import__(mod_name, globals(), locals(), [driver_name])
+            return getattr(_mod, driver_name)
+
     raise AttributeError('Provider %s does not exist' % (provider))
 
 
@@ -99,8 +106,7 @@ def set_driver(drivers, provider, module, klass):
     # Check if this driver is valid
     try:
         driver = get_driver(drivers, provider)
-    except (ImportError, AttributeError):
-        exp = sys.exc_info()[1]
+    except (ImportError, AttributeError) as exp:
         drivers.pop(provider)
         raise exp
 

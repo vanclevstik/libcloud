@@ -16,13 +16,8 @@
 import os
 import mimetypes
 
-from libcloud.utils.py3 import PY3
-from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import next
 from libcloud.utils.py3 import b
-
-if PY3:
-    from io import FileIO as file
 
 CHUNK_SIZE = 8096
 
@@ -49,8 +44,8 @@ def read_in_chunks(iterator, chunk_size=None, fill_size=False,
                       length (except for last chunk).
     :type fill_size: ``bool``
 
-    :param yield_empty: If true and iterator returned no data, yield empty
-                        bytes object before raising StopIteration.
+    :param yield_empty: If true and iterator returned no data, only yield empty
+                        bytes object
     :type yield_empty: ``bool``
 
     TODO: At some point in the future we could use byte arrays here if version
@@ -58,10 +53,10 @@ def read_in_chunks(iterator, chunk_size=None, fill_size=False,
     """
     chunk_size = chunk_size or CHUNK_SIZE
 
-    if isinstance(iterator, (file, httplib.HTTPResponse)):
+    try:
         get_data = iterator.read
         args = (chunk_size, )
-    else:
+    except AttributeError:
         get_data = next
         args = (iterator, )
 
@@ -83,7 +78,7 @@ def read_in_chunks(iterator, chunk_size=None, fill_size=False,
             if empty and yield_empty:
                 yield b('')
 
-            raise StopIteration
+            return
 
         if fill_size:
             if empty or len(data) >= chunk_size:

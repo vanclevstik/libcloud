@@ -16,6 +16,7 @@
 import sys
 
 from libcloud.utils.py3 import httplib
+from libcloud.utils.py3 import assertRaisesRegex
 from libcloud.common.types import LibcloudError
 from libcloud.compute.base import NodeState
 from libcloud.compute.drivers.joyent import JoyentNodeDriver
@@ -28,7 +29,7 @@ from libcloud.test.secrets import JOYENT_PARAMS
 class JoyentTestCase(unittest.TestCase):
 
     def setUp(self):
-        JoyentNodeDriver.connectionCls.conn_classes = (None, JoyentHttp)
+        JoyentNodeDriver.connectionCls.conn_class = JoyentHttp
         self.driver = JoyentNodeDriver(*JOYENT_PARAMS)
 
     def test_instantiate_multiple_drivers_with_different_region(self):
@@ -55,10 +56,10 @@ class JoyentTestCase(unittest.TestCase):
     def test_instantiate_invalid_region(self):
         expected_msg = 'Invalid region.+'
 
-        self.assertRaisesRegexp(LibcloudError, expected_msg, JoyentNodeDriver,
-                                'user', 'key', location='invalid')
-        self.assertRaisesRegexp(LibcloudError, expected_msg, JoyentNodeDriver,
-                                'user', 'key', region='invalid')
+        assertRaisesRegex(self, LibcloudError, expected_msg, JoyentNodeDriver,
+                          'user', 'key', location='invalid')
+        assertRaisesRegex(self, LibcloudError, expected_msg, JoyentNodeDriver,
+                          'user', 'key', region='invalid')
 
     def test_list_sizes(self):
         sizes = self.driver.list_sizes()

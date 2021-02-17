@@ -28,8 +28,7 @@ from libcloud.test.common.test_gandi import BaseGandiMockHttp
 class GandiTests(unittest.TestCase):
 
     def setUp(self):
-        GandiDNSDriver.connectionCls.conn_classes = (
-            GandiMockHttp, GandiMockHttp)
+        GandiDNSDriver.connectionCls.conn_class = GandiMockHttp
         GandiMockHttp.type = None
         self.driver = GandiDNSDriver(*DNS_GANDI)
 
@@ -86,8 +85,7 @@ class GandiTests(unittest.TestCase):
 
         try:
             self.driver.list_records(zone=zone)
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, zone.id)
         else:
             self.fail('Exception was not thrown')
@@ -97,8 +95,7 @@ class GandiTests(unittest.TestCase):
 
         try:
             self.driver.get_zone(zone_id='47234')
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, '47234')
         else:
             self.fail('Exception was not thrown')
@@ -183,8 +180,7 @@ class GandiTests(unittest.TestCase):
 
         try:
             self.driver.delete_zone(zone=zone)
-        except ZoneDoesNotExistError:
-            e = sys.exc_info()[1]
+        except ZoneDoesNotExistError as e:
             self.assertEqual(e.zone_id, zone.id)
         else:
             self.fail('Exception was not thrown')
@@ -201,8 +197,7 @@ class GandiTests(unittest.TestCase):
         GandiMockHttp.type = 'RECORD_DOES_NOT_EXIST'
         try:
             self.driver.delete_record(record=record)
-        except RecordDoesNotExistError:
-            e = sys.exc_info()[1]
+        except RecordDoesNotExistError as e:
             self.assertEqual(e.record_id, record.id)
         else:
             self.fail('Exception was not thrown')

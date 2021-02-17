@@ -42,6 +42,7 @@ class Provider(object):
 
     :cvar ALIYUN_SLB: Aliyun SLB loadbalancer driver
     """
+    ALB = 'alb'
     ALIYUN_SLB = 'aliyun_slb'
     BRIGHTBOX = 'brightbox'
     CLOUDSTACK = 'cloudstack'
@@ -50,6 +51,7 @@ class Provider(object):
     GCE = 'gce'
     GOGRID = 'gogrid'
     NINEFOLD = 'ninefold'
+    NTTCIS = 'nttcis'
     RACKSPACE = 'rackspace'
     SOFTLAYER = 'softlayer'
 

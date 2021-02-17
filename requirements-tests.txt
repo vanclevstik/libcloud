@@ -1,5 +1,13 @@
 pep8>=1.7.0,<1.8
-flake8>=2.5.1,<2.6
-astroid>=1.4.5,<1.5
-pylint>=1.5.5,<1.6
-mock>=1.0.1,<1.1
+flake8==3.7.9
+astroid==2.3.3
+pylint==2.4.4
+mock==3.0.5
+codecov==2.1.10
+coverage==4.5.4
+requests
+requests_mock
+pytest==5.3.2
+cryptography==2.9.2
+# NOTE: Only needed by nttcis loadbalancer driver
+pyopenssl==19.1.0

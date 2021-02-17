@@ -16,9 +16,12 @@
 #
 ################################################################################
 
-import simplejson
+# pylint: skip-file
+
 import unittest
 import utils
+
+import json
 
 
 class SplitStringToAlphaNumTest(unittest.TestCase):
@@ -56,8 +59,8 @@ class SortKeysNumericallyTest(unittest.TestCase):
 }\
 """
         self.assertEqual(
-            simplejson.dumps(input, indent=4 * ' ',
-                             item_sort_key=utils.sortKeysNumerically),
+            json.dumps(input, indent=4 * ' ',
+                       item_sort_key=utils.sortKeysNumerically),
             output)
 
 

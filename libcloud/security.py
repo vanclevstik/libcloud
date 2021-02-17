@@ -20,7 +20,7 @@ Usage:
     libcloud.security.VERIFY_SSL_CERT = True
 
     # Optional.
-    libcloud.security.CA_CERTS_PATH.append('/path/to/cacert.txt')
+    libcloud.security.CA_CERTS_PATH = '/path/to/certfile'
 """
 
 import os
@@ -36,30 +36,26 @@ VERIFY_SSL_CERT = True
 
 SSL_VERSION = ssl.PROTOCOL_TLSv1
 
+# True to use certifi CA bundle path when certifi library is available
+USE_CERTIFI = os.environ.get('LIBCLOUD_SSL_USE_CERTIFI', True)
+USE_CERTIFI = str(USE_CERTIFI).lower() in ['true', '1']
+
 # File containing one or more PEM-encoded CA certificates
 # concatenated together.
-CA_CERTS_PATH = [
-    # centos/fedora: openssl
-    '/etc/pki/tls/certs/ca-bundle.crt',
+CA_CERTS_PATH = None
 
-    # debian/ubuntu/arch/gentoo: ca-certificates
-    '/etc/ssl/certs/ca-certificates.crt',
+# Insert certifi CA bundle path to the front of Libcloud CA bundle search
+# path if certifi is available
+try:
+    import certifi
+except ImportError:
+    has_certifi = False
+else:
+    has_certifi = True
 
-    # freebsd: ca_root_nss
-    '/usr/local/share/certs/ca-root-nss.crt',
-
-    # macports: curl-ca-bundle
-    '/opt/local/share/curl/curl-ca-bundle.crt',
-
-    # homebrew: openssl
-    '/usr/local/etc/openssl/cert.pem',
-
-    # homebrew: curl-ca-bundle (backward compatibility)
-    '/usr/local/opt/curl-ca-bundle/share/ca-bundle.crt',
-
-    # opensuse/sles: openssl
-    '/etc/ssl/certs/YaST-CA.pem',
-]
+if has_certifi and USE_CERTIFI:
+    certifi_ca_bundle_path = certifi.where()
+    CA_CERTS_PATH = certifi_ca_bundle_path
 
 # Allow user to explicitly specify which CA bundle to use, using an environment
 # variable
@@ -75,7 +71,7 @@ if environment_cert_file is not None:
 
     # If a provided file exists we ignore other common paths because we
     # don't want to fall-back to a potentially less restrictive bundle
-    CA_CERTS_PATH = [environment_cert_file]
+    CA_CERTS_PATH = environment_cert_file
 
 CA_CERTS_UNAVAILABLE_ERROR_MSG = (
     'No CA Certificates were found in CA_CERTS_PATH. For information on '

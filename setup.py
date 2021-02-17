@@ -12,15 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 import sys
-import doctest
+import re
+import fnmatch
 
+import setuptools
 from setuptools import setup
 from distutils.core import Command
-from unittest import TextTestRunner, TestLoader
-from glob import glob
-from os.path import splitext, basename, join as pjoin
 
 try:
     import epydoc  # NOQA
@@ -28,24 +28,135 @@ try:
 except ImportError:
     has_epydoc = False
 
-import libcloud.utils
-from libcloud.utils.dist import get_packages, get_data_files
+# NOTE: Those functions are intentionally moved in-line to prevent setup.py dependening on any
+# Libcloud code which depends on libraries such as typing, enum, requests, etc.
+# START: Taken From Twisted Python which licensed under MIT license
+# https://github.com/powdahound/twisted/blob/master/twisted/python/dist.py
+# https://github.com/powdahound/twisted/blob/master/LICENSE
 
-libcloud.utils.SHOW_DEPRECATION_WARNING = False
+# Names that are excluded from globbing results:
+EXCLUDE_NAMES = ['{arch}', 'CVS', '.cvsignore', '_darcs',
+                 'RCS', 'SCCS', '.svn']
+EXCLUDE_PATTERNS = ['*.py[cdo]', '*.s[ol]', '.#*', '*~', '*.py']
+
+
+def _filter_names(names):
+    """
+    Given a list of file names, return those names that should be copied.
+    """
+    names = [n for n in names
+             if n not in EXCLUDE_NAMES]
+    # This is needed when building a distro from a working
+    # copy (likely a checkout) rather than a pristine export:
+    for pattern in EXCLUDE_PATTERNS:
+        names = [n for n in names
+                 if not fnmatch.fnmatch(n, pattern) and not n.endswith('.py')]
+    return names
+
+
+def relative_to(base, relativee):
+    """
+    Gets 'relativee' relative to 'basepath'.
+
+    i.e.,
+
+    >>> relative_to('/home/', '/home/radix/')
+    'radix'
+    >>> relative_to('.', '/home/radix/Projects/Twisted')
+    'Projects/Twisted'
+
+    The 'relativee' must be a child of 'basepath'.
+    """
+    basepath = os.path.abspath(base)
+    relativee = os.path.abspath(relativee)
+    if relativee.startswith(basepath):
+        relative = relativee[len(basepath):]
+        if relative.startswith(os.sep):
+            relative = relative[1:]
+        return os.path.join(base, relative)
+    raise ValueError("%s is not a subpath of %s" % (relativee, basepath))
+
+
+def get_packages(dname, pkgname=None, results=None, ignore=None, parent=None):
+    """
+    Get all packages which are under dname. This is necessary for
+    Python 2.2's distutils. Pretty similar arguments to getDataFiles,
+    including 'parent'.
+    """
+    parent = parent or ""
+    prefix = []
+    if parent:
+        prefix = [parent]
+    bname = os.path.basename(dname)
+    ignore = ignore or []
+    if bname in ignore:
+        return []
+    if results is None:
+        results = []
+    if pkgname is None:
+        pkgname = []
+    subfiles = os.listdir(dname)
+    abssubfiles = [os.path.join(dname, x) for x in subfiles]
+
+    if '__init__.py' in subfiles:
+        results.append(prefix + pkgname + [bname])
+        for subdir in filter(os.path.isdir, abssubfiles):
+            get_packages(subdir, pkgname=pkgname + [bname],
+                         results=results, ignore=ignore,
+                         parent=parent)
+    res = ['.'.join(result) for result in results]
+    return res
+
+
+def get_data_files(dname, ignore=None, parent=None):
+    """
+    Get all the data files that should be included in this distutils Project.
+
+    'dname' should be the path to the package that you're distributing.
+
+    'ignore' is a list of sub-packages to ignore.  This facilitates
+    disparate package hierarchies.  That's a fancy way of saying that
+    the 'twisted' package doesn't want to include the 'twisted.conch'
+    package, so it will pass ['conch'] as the value.
+
+    'parent' is necessary if you're distributing a subpackage like
+    twisted.conch.  'dname' should point to 'twisted/conch' and 'parent'
+    should point to 'twisted'.  This ensures that your data_files are
+    generated correctly, only using relative paths for the first element
+    of the tuple ('twisted/conch/*').
+    The default 'parent' is the current working directory.
+    """
+    parent = parent or "."
+    ignore = ignore or []
+    result = []
+    for directory, subdirectories, filenames in os.walk(dname):
+        resultfiles = []
+        for exname in EXCLUDE_NAMES:
+            if exname in subdirectories:
+                subdirectories.remove(exname)
+        for ig in ignore:
+            if ig in subdirectories:
+                subdirectories.remove(ig)
+        for filename in _filter_names(filenames):
+            resultfiles.append(filename)
+        if resultfiles:
+            for filename in resultfiles:
+                file_path = os.path.join(directory, filename)
+                if parent:
+                    file_path = file_path.replace(parent + os.sep, '')
+                result.append(file_path)
+
+    return result
+# END: Taken from Twisted
+
 
 # Different versions of python have different requirements.  We can't use
 # libcloud.utils.py3 here because it relies on backports dependency being
 # installed / available
-PY2 = sys.version_info[0] == 2
-PY3 = sys.version_info[0] == 3
-PY2_pre_25 = PY2 and sys.version_info < (2, 5)
-PY2_pre_26 = PY2 and sys.version_info < (2, 6)
-PY2_pre_27 = PY2 and sys.version_info < (2, 7)
-PY2_pre_279 = PY2 and sys.version_info < (2, 7, 9)
-PY3_pre_32 = PY3 and sys.version_info < (3, 2)
+PY_pre_35 = sys.version_info < (3, 5, 0)
 
 HTML_VIEWSOURCE_BASE = 'https://svn.apache.org/viewvc/libcloud/trunk'
-PROJECT_BASE_DIR = 'http://libcloud.apache.org'
+PROJECT_BASE_DIR = 'https://libcloud.apache.org'
 TEST_PATHS = ['libcloud/test', 'libcloud/test/common', 'libcloud/test/compute',
               'libcloud/test/storage', 'libcloud/test/loadbalancer',
               'libcloud/test/dns', 'libcloud/test/container',
@@ -56,34 +167,57 @@ DOC_TEST_MODULES = ['libcloud.compute.drivers.dummy',
                     'libcloud.container.drivers.dummy',
                     'libcloud.backup.drivers.dummy']
 
-SUPPORTED_VERSIONS = ['2.5', '2.6', '2.7', 'PyPy', '3.x']
+SUPPORTED_VERSIONS = ['PyPy 3', 'Python 3.5+']
 
-TEST_REQUIREMENTS = [
-    'mock'
+# NOTE: python_version syntax is only supported when build system has
+# setuptools >= 36.2
+# For installation, minimum required pip version is 1.4
+# Reference: https://hynek.me/articles/conditional-python-dependencies/
+INSTALL_REQUIREMENTS = [
+    'requests>=2.5.0',
 ]
 
-if PY2_pre_279 or PY3_pre_32:
-    TEST_REQUIREMENTS.append('backports.ssl_match_hostname')
+setuptools_version = tuple(setuptools.__version__.split(".")[0:2])
+setuptools_version = tuple([int(c) for c in setuptools_version])
 
-if PY2_pre_27:
-    unittest2_required = True
-else:
-    unittest2_required = False
+if setuptools_version < (36, 2):
+    if 'bdist_wheel' in sys.argv:
+        # NOTE: We need to do that because we use universal wheel
+        msg = ('Need to use latest version of setuptools when building wheels to ensure included '
+               'metadata is correct. Current version: %s' % (setuptools.__version__))
+        raise RuntimeError(msg)
 
-if PY2_pre_25:
+TEST_REQUIREMENTS = [
+    'mock',
+    'requests_mock',
+    'pytest',
+    'pytest-runner'
+] + INSTALL_REQUIREMENTS
+
+if PY_pre_35:
     version = '.'.join([str(x) for x in sys.version_info[:3]])
-    print('Version ' + version + ' is not supported. Supported versions are ' +
-          ', '.join(SUPPORTED_VERSIONS))
+    print('Version ' + version + ' is not supported. Supported versions are: %s. '
+          'Latest version which supports Python 2.7 and Python 3 < 3.5.0 is '
+          'Libcloud v2.8.2' % ', '.join(SUPPORTED_VERSIONS))
     sys.exit(1)
 
 
 def read_version_string():
     version = None
-    sys.path.insert(0, pjoin(os.getcwd()))
-    from libcloud import __version__
-    version = __version__
-    sys.path.pop(0)
-    return version
+    cwd = os.path.dirname(os.path.abspath(__file__))
+    version_file = os.path.join(cwd, 'libcloud/__init__.py')
+
+    with open(version_file) as fp:
+        content = fp.read()
+
+    match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]",
+                      content, re.M)
+
+    if match:
+        version = match.group(1)
+        return version
+
+    raise Exception('Cannot find version in libcloud/__init__.py')
 
 
 def forbid_publish():
@@ -95,113 +229,6 @@ def forbid_publish():
               'For more information, see "Making a release section" in the '
               'documentation')
         sys.exit(1)
-
-
-class TestCommand(Command):
-    description = "run test suite"
-    user_options = []
-    unittest_TestLoader = TestLoader
-    unittest_TextTestRunner = TextTestRunner
-
-    def initialize_options(self):
-        THIS_DIR = os.path.abspath(os.path.split(__file__)[0])
-        sys.path.insert(0, THIS_DIR)
-        for test_path in TEST_PATHS:
-            sys.path.insert(0, pjoin(THIS_DIR, test_path))
-        self._dir = os.getcwd()
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        for module_name in TEST_REQUIREMENTS:
-            try:
-                __import__(module_name)
-            except ImportError:
-                print('Missing "%s" library. %s is library is needed '
-                      'to run the tests. You can install it using pip: '
-                      'pip install %s' % (module_name, module_name,
-                                          module_name))
-                sys.exit(1)
-
-        if unittest2_required:
-            try:
-                from unittest2 import TextTestRunner, TestLoader
-                self.unittest_TestLoader = TestLoader
-                self.unittest_TextTestRunner = TextTestRunner
-            except ImportError:
-                print('Python version: %s' % (sys.version))
-                print('Missing "unittest2" library. unittest2 is library is '
-                      'needed to run the tests. You can install it using pip: '
-                      'pip install unittest2')
-                sys.exit(1)
-
-        status = self._run_tests()
-        sys.exit(status)
-
-    def _run_tests(self):
-        secrets_current = pjoin(self._dir, 'libcloud/test', 'secrets.py')
-        secrets_dist = pjoin(self._dir, 'libcloud/test', 'secrets.py-dist')
-
-        if not os.path.isfile(secrets_current):
-            print("Missing " + secrets_current)
-            print("Maybe you forgot to copy it from -dist:")
-            print("cp libcloud/test/secrets.py-dist libcloud/test/secrets.py")
-            sys.exit(1)
-
-        mtime_current = os.path.getmtime(secrets_current)
-        mtime_dist = os.path.getmtime(secrets_dist)
-
-        if mtime_dist > mtime_current:
-            print("It looks like test/secrets.py file is out of date.")
-            print("Please copy the new secrets.py-dist file over otherwise" +
-                  " tests might fail")
-
-        if PY2_pre_26:
-            missing = []
-            # test for dependencies
-            try:
-                import simplejson
-                simplejson              # silence pyflakes
-            except ImportError:
-                missing.append("simplejson")
-
-            try:
-                import ssl
-                ssl                     # silence pyflakes
-            except ImportError:
-                missing.append("ssl")
-
-            if missing:
-                print("Missing dependencies: " + ", ".join(missing))
-                sys.exit(1)
-
-        testfiles = []
-        for test_path in TEST_PATHS:
-            for t in glob(pjoin(self._dir, test_path, 'test_*.py')):
-                testfiles.append('.'.join(
-                    [test_path.replace('/', '.'), splitext(basename(t))[0]]))
-
-        # Test loader simply throws "'module' object has no attribute" error
-        # if there is an issue with the test module so we manually try to
-        # import each module so we get a better and more friendly error message
-        for test_file in testfiles:
-            try:
-                __import__(test_file)
-            except Exception:
-                e = sys.exc_info()[1]
-                print('Failed to import test module "%s": %s' % (test_file,
-                                                                 str(e)))
-                raise e
-
-        tests = self.unittest_TestLoader().loadTestsFromNames(testfiles)
-
-        for test_module in DOC_TEST_MODULES:
-            tests.addTests(doctest.DocTestSuite(test_module))
-
-        t = self.unittest_TextTestRunner(verbosity=2)
-        res = t.run(tests)
-        return not res.wasSuccessful()
 
 
 class ApiDocsCommand(Command):
@@ -229,61 +256,39 @@ class ApiDocsCommand(Command):
             % (HTML_VIEWSOURCE_BASE, PROJECT_BASE_DIR))
 
 
-class CoverageCommand(Command):
-    description = "run test suite and generate coverage report"
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        import coverage
-        cov = coverage.coverage(config_file='.coveragerc')
-        cov.start()
-
-        tc = TestCommand(self.distribution)
-        tc._run_tests()
-
-        cov.stop()
-        cov.save()
-        cov.html_report()
-
 forbid_publish()
 
-install_requires = []
-if PY2_pre_26:
-    install_requires.extend(['ssl', 'simplejson'])
-
-if PY2_pre_279 or PY3_pre_32:
-    install_requires.append('backports.ssl_match_hostname')
+needs_pytest = {'pytest', 'test', 'ptr'}.intersection(sys.argv)
+pytest_runner = ['pytest-runner'] if needs_pytest else []
 
 setup(
     name='apache-libcloud',
     version=read_version_string(),
     description='A standard Python library that abstracts away differences' +
                 ' among multiple cloud provider APIs. For more information' +
-                ' and documentation, please see http://libcloud.apache.org',
+                ' and documentation, please see https://libcloud.apache.org',
+    long_description=open('README.rst').read(),
     author='Apache Software Foundation',
     author_email='dev@libcloud.apache.org',
-    install_requires=install_requires,
+    install_requires=INSTALL_REQUIREMENTS,
+    python_requires=">=3.5.*, <4",
     packages=get_packages('libcloud'),
     package_dir={
         'libcloud': 'libcloud',
     },
-    package_data={'libcloud': get_data_files('libcloud', parent='libcloud')},
+    package_data={
+        'libcloud': get_data_files('libcloud', parent='libcloud') + ['py.typed'],
+    },
     license='Apache License (2.0)',
-    url='http://libcloud.apache.org/',
+    url='https://libcloud.apache.org/',
+    setup_requires=pytest_runner,
+    tests_require=TEST_REQUIREMENTS,
     cmdclass={
-        'test': TestCommand,
         'apidocs': ApiDocsCommand,
-        'coverage': CoverageCommand
     },
     zip_safe=False,
     classifiers=[
-        'Development Status :: 4 - Beta',
+        'Development Status :: 5 - Production/Stable',
         'Environment :: Console',
         'Intended Audience :: Developers',
         'Intended Audience :: System Administrators',
@@ -291,16 +296,13 @@ setup(
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Topic :: Software Development :: Libraries :: Python Modules',
-        'Programming Language :: Python :: 2.5',
-        'Programming Language :: Python :: 2.6',
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.0',
-        'Programming Language :: Python :: 3.1',
-        'Programming Language :: Python :: 3.2',
-        'Programming Language :: Python :: 3.3',
-        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: Implementation :: CPython',
-        'Programming Language :: Python :: Implementation :: PyPy']
-    )
+        'Programming Language :: Python :: Implementation :: PyPy'
+    ]
+)

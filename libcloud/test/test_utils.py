@@ -15,12 +15,14 @@
 # limitations under the License.
 
 import sys
+import pytest
 import socket
 import codecs
 import unittest
 import warnings
+import platform
 import os.path
-
+import requests_mock
 from itertools import chain
 
 # In Python > 2.7 DeprecationWarnings are disabled by default
@@ -38,12 +40,20 @@ from libcloud.utils.py3 import hexadigits
 from libcloud.utils.py3 import urlquote
 from libcloud.compute.types import Provider
 from libcloud.compute.providers import DRIVERS
+from libcloud.compute.drivers.dummy import DummyNodeDriver
 from libcloud.utils.misc import get_secure_random_string
 from libcloud.utils.networking import is_public_subnet
 from libcloud.utils.networking import is_private_subnet
 from libcloud.utils.networking import is_valid_ip_address
 from libcloud.utils.networking import join_ipv4_segments
 from libcloud.utils.networking import increment_ipv4_segments
+from libcloud.utils.decorators import wrap_non_libcloud_exceptions
+from libcloud.utils.connection import get_response_object
+from libcloud.utils.publickey import (
+    get_pubkey_openssh_fingerprint,
+    get_pubkey_ssh2_fingerprint,
+)
+from libcloud.common.types import LibcloudError
 from libcloud.storage.drivers.dummy import DummyIterator
 
 
@@ -53,8 +63,9 @@ if PY3:
     from io import FileIO as file
 
 
-def show_warning(msg, cat, fname, lno, line=None):
+def show_warning(msg, cat, fname, lno, file=None, line=None):
     WARNINGS_BUFFER.append((msg, cat, fname, lno))
+
 
 original_func = warnings.showwarning
 
@@ -69,6 +80,7 @@ class TestUtils(unittest.TestCase):
         WARNINGS_BUFFER = []
         warnings.showwarning = original_func
 
+    @unittest.skipIf(platform.system().lower() == 'windows', 'Unsupported on Windows')
     def test_guess_file_mime_type(self):
         file_path = os.path.abspath(__file__)
         mimetype, encoding = libcloud.utils.files.guess_file_mime_type(
@@ -86,6 +98,16 @@ class TestUtils(unittest.TestCase):
             pass
         else:
             self.fail('Invalid provider, but an exception was not thrown')
+
+    def test_get_driver_string_and_enum_notation(self):
+        driver = get_driver(drivers=DRIVERS, provider=Provider.DUMMY)
+        self.assertEqual(driver, DummyNodeDriver)
+
+        driver = get_driver(drivers=DRIVERS, provider='dummy')
+        self.assertEqual(driver, DummyNodeDriver)
+
+        driver = get_driver(drivers=DRIVERS, provider='DUMMY')
+        self.assertEqual(driver, DummyNodeDriver)
 
     def test_set_driver(self):
         # Set an existing driver
@@ -191,32 +213,32 @@ class TestUtils(unittest.TestCase):
             self.assertEqual(result, b('aaaaaaaaaa'))
 
     def test_read_in_chunks_filelike(self):
-            class FakeFile(file):
-                def __init__(self):
-                    self.remaining = 500
+        class FakeFile(file):
+            def __init__(self):
+                self.remaining = 500
 
-                def read(self, size):
-                    self.remaining -= 1
-                    if self.remaining == 0:
-                        return ''
-                    return 'b' * (size + 1)
+            def read(self, size):
+                self.remaining -= 1
+                if self.remaining == 0:
+                    return ''
+                return 'b' * (size + 1)
 
-            for index, result in enumerate(libcloud.utils.files.read_in_chunks(
-                                           FakeFile(), chunk_size=10,
-                                           fill_size=False)):
-                self.assertEqual(result, b('b' * 11))
+        for index, result in enumerate(libcloud.utils.files.read_in_chunks(
+                                       FakeFile(), chunk_size=10,
+                                       fill_size=False)):
+            self.assertEqual(result, b('b' * 11))
 
-            self.assertEqual(index, 498)
+        self.assertEqual(index, 498)
 
-            for index, result in enumerate(libcloud.utils.files.read_in_chunks(
-                                           FakeFile(), chunk_size=10,
-                                           fill_size=True)):
-                if index != 548:
-                    self.assertEqual(result, b('b' * 10))
-                else:
-                    self.assertEqual(result, b('b' * 9))
+        for index, result in enumerate(libcloud.utils.files.read_in_chunks(
+                                       FakeFile(), chunk_size=10,
+                                       fill_size=True)):
+            if index != 548:
+                self.assertEqual(result, b('b' * 10))
+            else:
+                self.assertEqual(result, b('b' * 9))
 
-            self.assertEqual(index, 548)
+        self.assertEqual(index, 548)
 
     def test_exhaust_iterator(self):
         def iterator_func():
@@ -254,12 +276,12 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(b(uri), b('%C3%A9'))
 
         # Unicode without unicode characters
-        uri = urlquote('~abc')
-        self.assertEqual(b(uri), b('%7Eabc'))
+        uri = urlquote('v=1')
+        self.assertEqual(b(uri), b('v%3D1'))
 
         # Already-encoded bytestring without unicode characters
-        uri = urlquote(b('~abc'))
-        self.assertEqual(b(uri), b('%7Eabc'))
+        uri = urlquote(b('v=1'))
+        self.assertEqual(b(uri), b('v%3D1'))
 
     def test_get_secure_random_string(self):
         for i in range(1, 500):
@@ -379,6 +401,43 @@ class NetworkingUtilsTestCase(unittest.TestCase):
             result = increment_ipv4_segments(segments=segments)
             result = join_ipv4_segments(segments=result)
             self.assertEqual(result, incremented_ip)
+
+
+class TestPublicKeyUtils(unittest.TestCase):
+
+    PUBKEY = (
+        'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDOfbWSXOlqvYjZmRO84/lIoV4gvuX+'
+        'P1lLg50MMg6jZjLZIlYY081XPRmuom0xY0+BO++J2KgLl7gxJ6xMsKK2VQ+TakdfAH20'
+        'XfMcTohd/zVCeWsbqZQvEhVXBo4hPIktcfNz0u9Ez3EtInO+kb7raLcRhOVi9QmOkOrC'
+        'WtQU9mS71AWJuqI9H0YAnTiI8Hs5bn2tpMIqmTXT3g2bwywC25x1Nx9Hy0/FP+KUL6Ag'
+        'vDXv47l+TgSDfTBEkvq+IF1ITrnaOG+nRE02oZC6cwHYTifM/IOollkujxIQmi2Z+j66'
+        'OHSrjnEQugr0FqGJF2ygKfIh/i2u3fVLM60qE2NN user@example'
+    )
+
+    def test_pubkey_openssh_fingerprint(self):
+        fp = get_pubkey_openssh_fingerprint(self.PUBKEY)
+        self.assertEqual(fp, '35:22:13:5b:82:e2:5d:e1:90:8c:73:74:9f:ef:3b:d8')
+
+    def test_pubkey_ssh2_fingerprint(self):
+        fp = get_pubkey_ssh2_fingerprint(self.PUBKEY)
+        self.assertEqual(fp, '11:ad:5d:4c:5b:99:c9:80:7e:81:03:76:5a:25:9d:8c')
+
+
+def test_decorator():
+
+    @wrap_non_libcloud_exceptions
+    def foo():
+        raise Exception("bork")
+
+    with pytest.raises(LibcloudError):
+        foo()
+
+
+def test_get_response_object():
+    with requests_mock.mock() as m:
+        m.get('http://test.com/test', text='data')
+        response = get_response_object('http://test.com/test')
+        assert response.body == 'data'
 
 
 if __name__ == '__main__':

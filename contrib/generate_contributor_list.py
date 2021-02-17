@@ -66,7 +66,7 @@ def parse_changes_file(file_path, versions=None):
             line = line.strip()
 
             match = re.search(r'Changes with Apache Libcloud '
-                              '(\d+\.\d+\.\d+(-\w+)?).*?$', line)
+                              r'(\d+\.\d+\.\d+(-\w+)?).*?$', line)
 
             if match:
                 active_version = match.groups()[0]
@@ -112,7 +112,7 @@ def convert_to_markdown(contributors_map, include_tickets=False):
     def compare(item1, item2):
         lastname1 = item1.split(' ')[-1].lower()
         lastname2 = item2.split(' ')[-1].lower()
-        return cmp(lastname1, lastname2)
+        return (lastname1 > lastname2) - (lastname1 < lastname2)
 
     names = contributors_map.keys()
     names = sorted(names, cmp=compare)
@@ -150,6 +150,7 @@ def convert_to_markdown(contributors_map, include_tickets=False):
 
     result = '\n'.join(result)
     return result
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Assemble provider logos '

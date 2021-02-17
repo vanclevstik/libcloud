@@ -11,6 +11,8 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
+# limitations under the License.
+
 import sys
 import unittest
 
@@ -26,8 +28,7 @@ from libcloud.test.secrets import DNS_PARAMS_DNSIMPLE
 
 class DNSimpleDNSTests(unittest.TestCase):
     def setUp(self):
-        DNSimpleDNSDriver.connectionCls.conn_classes = (
-            None, DNSimpleDNSMockHttp)
+        DNSimpleDNSDriver.connectionCls.conn_class = DNSimpleDNSMockHttp
         DNSimpleDNSMockHttp.type = None
         self.driver = DNSimpleDNSDriver(*DNS_PARAMS_DNSIMPLE)
 
